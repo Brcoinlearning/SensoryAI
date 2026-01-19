@@ -50,7 +50,9 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
             RenderProcessor.init(this);
             RecognizeProcessor.init(this);
             ProcessorManager.init(this);
-        } catch (Exception e) { Log.e(TAG, "Init Error", e); }
+        } catch (Exception e) {
+            Log.e(TAG, "Init Error", e);
+        }
 
         tvStatusLeft = findViewById(R.id.tv_status_left);
         tvStatusRight = findViewById(R.id.tv_status_right);
@@ -70,7 +72,8 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
 
         View debugPanel = findViewById(R.id.debug_panel);
         if (isEmulator()) {
-            if (debugPanel != null) debugPanel.setVisibility(View.VISIBLE);
+            if (debugPanel != null)
+                debugPanel.setVisibility(View.VISIBLE);
             updateStatus("模式：模拟器");
             View btnMock = findViewById(R.id.btn_mock_data);
             if (btnMock != null) {
@@ -81,20 +84,24 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
                 });
             }
         } else {
-            if (debugPanel != null) debugPanel.setVisibility(View.GONE);
+            if (debugPanel != null)
+                debugPanel.setVisibility(View.GONE);
             new Handler(Looper.getMainLooper()).postDelayed(() -> {
                 try {
                     ICameraManager.init(this);
                     updateStatus("摄像头已启动");
-                } catch (Exception e) {}
+                } catch (Exception e) {
+                }
             }, 1000);
         }
     }
 
     public void updateStatus(String msg) {
         runOnUiThread(() -> {
-            if (tvStatusLeft != null) tvStatusLeft.setText(msg);
-            if (tvStatusRight != null) tvStatusRight.setText(msg);
+            if (tvStatusLeft != null)
+                tvStatusLeft.setText(msg);
+            if (tvStatusRight != null)
+                tvStatusRight.setText(msg);
         });
     }
 
@@ -109,9 +116,8 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
         // 1. 只更新数据源，不调用 invalidate()
         RenderProcessor.getInstance().setRenderData(renderData);
 
-        if (renderData == null) return;
-
-        // ... 逻辑判断部分保持不变 ...
+        if (renderData == null)
+            return;
         if (renderData.isMicTriggered()) {
             toggleMicState();
         }
@@ -151,8 +157,10 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
     // ... 这里省略以节省篇幅，请保留你原有的实现
 
     private void updateCardPosition(float tipX, float tipY) {
-        if (cardLeft == null || cardRight == null) return;
-        if (cardLeft.getVisibility() != View.VISIBLE) return;
+        if (cardLeft == null || cardRight == null)
+            return;
+        if (cardLeft.getVisibility() != View.VISIBLE)
+            return;
         DisplayMetrics metrics = getResources().getDisplayMetrics();
         float screenW = metrics.widthPixels;
         float screenH = metrics.heightPixels;
@@ -163,7 +171,8 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
         float offsetX = 50f;
         float offsetY = -250f;
         float tempY = baseY + offsetY;
-        if (tempY < 0) tempY = 20;
+        if (tempY < 0)
+            tempY = 20;
         float finalLeftX = leftBaseX + offsetX;
         float finalRightX = rightBaseX + offsetX;
         float finalY = tempY;
@@ -195,8 +204,10 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
 
     private void closeCard() {
         runOnUiThread(() -> {
-            if (cardLeft != null) cardLeft.setVisibility(View.GONE);
-            if (cardRight != null) cardRight.setVisibility(View.GONE);
+            if (cardLeft != null)
+                cardLeft.setVisibility(View.GONE);
+            if (cardRight != null)
+                cardRight.setVisibility(View.GONE);
             triggerVibration();
         });
         isAnalyzing = false;
@@ -219,8 +230,10 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
     private void triggerVibration() {
         try {
             Vibrator v = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
-            if (v != null) v.vibrate(100);
-        } catch (Exception e) {}
+            if (v != null)
+                v.vibrate(100);
+        } catch (Exception e) {
+        }
     }
 
     private void saveDebugImage(Bitmap originalBitmap, float x, float y) {
@@ -238,7 +251,9 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
                 String title = "AR_" + System.currentTimeMillis();
                 MediaStore.Images.Media.insertImage(getContentResolver(), mutableBitmap, title, "Debug");
                 mutableBitmap.recycle();
-            } catch (Exception e) { Log.e(TAG, "Save Error", e); }
+            } catch (Exception e) {
+                Log.e(TAG, "Save Error", e);
+            }
         }).start();
     }
 
@@ -247,6 +262,7 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
             super(context);
             setBackgroundColor(Color.TRANSPARENT);
         }
+
         @Override
         protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);

@@ -1,10 +1,6 @@
 package com.narc.arclient.camera.callback;
 
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
-import android.graphics.ImageFormat;
-import android.graphics.Rect;
-import android.graphics.YuvImage;
 import android.media.Image;
 import android.media.ImageReader;
 import android.util.Log;
@@ -12,101 +8,157 @@ import android.util.Log;
 import com.narc.arclient.entity.RecognizeTask;
 import com.narc.arclient.process.processor.RecognizeProcessor;
 
-import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 
 public class CameraImageAvailableListener implements ImageReader.OnImageAvailableListener {
     private static final String TAG = "CameraListener";
 
+    // 缓存数组，避免每帧重复分配内存 (GC 杀手)
+    private int[] argbArray;
+    private byte[] yBufferBytes;
+    private byte[] uBufferBytes;
+    private byte[] vBufferBytes;
+
     @Override
     public void onImageAvailable(ImageReader reader) {
+        // 1. 【繁忙丢帧】如果 AI 还没算完上一帧，这一帧直接扔掉
+        // 这样可以避免积压，保证光标的实时性
+        if (!RecognizeProcessor.getInstance().isReady()) {
+            Image image = reader.acquireLatestImage();
+            if (image != null) image.close();
+            return;
+        }
+
         Image image = null;
         try {
-            // 获取最新一帧 (YUV 格式)
             image = reader.acquireLatestImage();
             if (image == null) return;
 
-            // 1. 将 YUV_420_888 转为 NV21 byte数组
-            byte[] nv21 = YUV_420_888toNV21(image);
+            long start = System.currentTimeMillis(); // ⏱️ 开始计时
 
-            // 2. 将 NV21 转为 Bitmap
-            // (虽然这里用了一次 compressToJpeg，但因为是在后台线程且是 YuvImage，比硬件 JPEG 管道要快且可控)
-            YuvImage yuvImage = new YuvImage(nv21, ImageFormat.NV21, image.getWidth(), image.getHeight(), null);
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            yuvImage.compressToJpeg(new Rect(0, 0, image.getWidth(), image.getHeight()), 80, out);
-            byte[] imageBytes = out.toByteArray();
+            int width = image.getWidth();
+            int height = image.getHeight();
 
-            Bitmap bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.length);
+            // 2. 【降维打击】设定缩放步长 (4)
+            // 1920x1080 -> 480x270。这个尺寸对 AI 足够清晰，且速度快 16 倍。
+            int step = 4;
+            int smallW = width / step;
+            int smallH = height / step;
 
-            // 3. 发送给识别处理器
-            if (bitmap != null) {
-                // 直接调用 RecognizeProcessor (或者用你的 ProcessorManager)
-                RecognizeProcessor.getInstance().process(new RecognizeTask(bitmap));
-            }
+            // 初始化缓存 (仅在第一帧或尺寸变化时执行)
+            prepareBuffers(smallW, smallH, image);
+
+            // 3. 【极速转换】YUV -> ARGB (纯数组操作)
+            // 之前的版本在这里慢，这次我们修好了！
+            fastYUVtoARGB(image, smallW, smallH, step);
+
+            // 4. 创建 Bitmap
+            // 从 int[] 创建 Bitmap 极快
+            Bitmap bitmap = Bitmap.createBitmap(argbArray, smallW, smallH, Bitmap.Config.ARGB_8888);
+
+            // ⏱️ 打印转换耗时：如果小于 20ms，说明问题解决了！
+            long cost = System.currentTimeMillis() - start;
+            // Log.d(TAG, "⚡️ YUV转Bitmap耗时: " + cost + "ms");
+
+            // 5. 发送
+            RecognizeProcessor.getInstance().process(new RecognizeTask(bitmap));
 
         } catch (Exception e) {
-            Log.e(TAG, "Image process error: " + e.getMessage());
+            Log.e(TAG, "Error: " + e.getMessage());
         } finally {
-            // ⚠️ 极其重要：必须关闭 image，否则相机流会卡死
             if (image != null) {
                 image.close();
             }
         }
     }
 
-    // 工具方法：高效提取 YUV 数据
-    private byte[] YUV_420_888toNV21(Image image) {
-        int width = image.getWidth();
-        int height = image.getHeight();
-        int ySize = width * height;
-        int uvSize = width * height / 2;
-        byte[] nv21 = new byte[ySize + uvSize];
-
-        ByteBuffer yBuffer = image.getPlanes()[0].getBuffer();
-        ByteBuffer uBuffer = image.getPlanes()[1].getBuffer();
-        ByteBuffer vBuffer = image.getPlanes()[2].getBuffer();
-
-        int rowStride = image.getPlanes()[0].getRowStride();
-        int pixelStride = image.getPlanes()[0].getPixelStride(); // 通常为 1
-
-        // 复制 Y 分量
-        int pos = 0;
-        if (rowStride == width) {
-            yBuffer.get(nv21, 0, ySize);
-            pos = ySize;
-        } else {
-            // 处理 stride 对齐问题
-            for (int row = 0; row < height; row++) {
-                yBuffer.position(row * rowStride);
-                yBuffer.get(nv21, pos, width);
-                pos += width;
-            }
+    // 初始化复用数组
+    private void prepareBuffers(int smallW, int smallH, Image image) {
+        if (argbArray == null || argbArray.length != smallW * smallH) {
+            argbArray = new int[smallW * smallH];
         }
 
-        // 复制 UV 分量 (NV21 格式: V, U, V, U...)
-        int vRowStride = image.getPlanes()[2].getRowStride();
-        int vPixelStride = image.getPlanes()[2].getPixelStride();
+        // 预分配 YUV 数据拷贝缓存
+        Image.Plane[] planes = image.getPlanes();
+        int ySize = planes[0].getBuffer().remaining();
+        int uSize = planes[1].getBuffer().remaining();
+        int vSize = planes[2].getBuffer().remaining();
 
-        // 这是一个简化的转换，大部分设备适用
-        // 如果想追求极致速度，可以使用 RenderScript 或 Native 代码，但 Java 层这样写通常足够 30FPS
-        int uvHeight = height / 2;
-        int uvWidth = width / 2;
+        if (yBufferBytes == null || yBufferBytes.length < ySize) {
+            yBufferBytes = new byte[ySize];
+        }
+        if (uBufferBytes == null || uBufferBytes.length < uSize) {
+            uBufferBytes = new byte[uSize];
+        }
+        if (vBufferBytes == null || vBufferBytes.length < vSize) {
+            vBufferBytes = new byte[vSize];
+        }
+    }
 
-        byte[] vBytes = new byte[vBuffer.remaining()];
-        byte[] uBytes = new byte[uBuffer.remaining()];
-        vBuffer.get(vBytes);
-        uBuffer.get(uBytes);
+    /**
+     * 极速 YUV 转 ARGB (数组版)
+     * 关键优化：先 bulk copy 到 byte[]，再循环访问
+     */
+    private void fastYUVtoARGB(Image image, int outW, int outH, int step) {
+        Image.Plane[] planes = image.getPlanes();
 
-        for (int row = 0; row < uvHeight; row++) {
-            for (int col = 0; col < uvWidth; col++) {
-                int vPos = row * vRowStride + col * vPixelStride;
-                int uPos = row * vRowStride + col * vPixelStride;
+        ByteBuffer yBuffer = planes[0].getBuffer();
+        ByteBuffer uBuffer = planes[1].getBuffer();
+        ByteBuffer vBuffer = planes[2].getBuffer();
 
-                // NV21 顺序: Y...Y V U V U
-                nv21[pos++] = vBytes[vPos];
-                nv21[pos++] = uBytes[uPos];
+        // 1. 【批量拷贝】这是解决 2FPS 的关键！
+        // JNI 批量拷贝非常快 (1080p 约 1-3ms)，比在循环里几十万次 get() 快得多。
+        // get(byte[]) 会自动处理 position，所以每次都要 rewind 或者重新获取
+        yBuffer.get(yBufferBytes, 0, yBuffer.remaining());
+        uBuffer.get(uBufferBytes, 0, uBuffer.remaining());
+        vBuffer.get(vBufferBytes, 0, vBuffer.remaining());
+
+        int yRowStride = planes[0].getRowStride();
+        int uvRowStride = planes[1].getRowStride();
+        int uvPixelStride = planes[1].getPixelStride();
+
+        // 2. 循环处理 (现在访问的是 Java 数组，速度起飞)
+        int pIndex = 0;
+        for (int y = 0; y < outH; y++) {
+            int srcY = y * step;
+            int yIdxOffset = srcY * yRowStride;
+            int uvIdxOffset = (srcY / 2) * uvRowStride;
+
+            for (int x = 0; x < outW; x++) {
+                int srcX = x * step;
+
+                // 读取 Y (从数组读)
+                int Y = yBufferBytes[yIdxOffset + srcX] & 0xFF;
+
+                // 读取 UV (从数组读)
+                int uvIndex = uvIdxOffset + (srcX / 2) * uvPixelStride;
+
+                // 边界保护 (防止个别机型 stride 对齐问题导致越界)
+                if (uvIndex >= uBufferBytes.length) uvIndex = uBufferBytes.length - 1;
+
+                int U = uBufferBytes[uvIndex] & 0xFF;
+                // V 的索引逻辑和 U 一样，只是来源于 V Plane
+                if (uvIndex >= vBufferBytes.length) uvIndex = vBufferBytes.length - 1;
+                int V = vBufferBytes[uvIndex] & 0xFF;
+
+                // YUV 转 RGB 公式 (整数运算优化)
+                // U 和 V 在公式里通常要减 128
+                int u = U - 128;
+                int v = V - 128;
+
+                // 使用位运算替代浮点乘法 (近似值，速度最快)
+                int r = Y + ((351 * v) >> 8);
+                int g = Y - ((179 * v + 86 * u) >> 8);
+                int b = Y + ((443 * u) >> 8);
+
+                // 钳制范围 0-255
+                r = (r < 0) ? 0 : (r > 255) ? 255 : r;
+                g = (g < 0) ? 0 : (g > 255) ? 255 : g;
+                b = (b < 0) ? 0 : (b > 255) ? 255 : b;
+
+                // 存入 int 数组
+                argbArray[pIndex++] = (0xFF << 24) | (r << 16) | (g << 8) | b;
             }
         }
-        return nv21;
     }
 }

@@ -19,14 +19,30 @@ public class RenderProcessor {
     private Paint paintButton;
     private Paint paintText;
 
-    private boolean isMicOn = false;
-
-    // 👇 1. 新增：平滑滤波变量
-    private float smoothX = -1f; // 当前光标的显示坐标
+    // 平滑滤波变量
+    private float smoothX = -1f;
     private float smoothY = -1f;
-    // 平滑因子 (0.0 ~ 1.0)：越小越平滑但延迟越高，越大越跟手但抖动越大
-    // 推荐 0.3 ~ 0.5
-    private static final float SMOOTH_FACTOR = 0.4f;
+
+    // 👇👇👇【优化后的参数 - 提升跟手性】👇👇👇
+
+    // 1. 振幅放大倍数（让手指移动距离对应更大的屏幕位移）
+    private static final float SCALE_X = 1.6f; // X轴放大倍数，可调 1.2~1.6
+    private static final float SCALE_Y = 1.2f; // Y轴放大倍数，可调 1.0~1.4
+
+    // 2. 偏移量（微调位置）
+    private static final float OFFSET_X = -170f; // 负值向左，正值向右
+    private static final float OFFSET_Y = -150f; // 负值向上，正值向下
+
+    // 3. 平滑算法参数
+    private static final float MIN_FACTOR = 0.2f; // 静止时的稳定性（降低抖动）
+    private static final float MAX_FACTOR = 1.0f; // 运动时的跟手度（完全跟随）
+    private static final float JITTER_THRESHOLD = 2.0f; // 手抖阈值（像素）
+    private static final float MOVE_THRESHOLD = 40.0f; // 快速移动阈值（像素）
+
+    // 4. 快速贴合阈值（大幅移动时直接跳转）
+    private static final float FAST_SNAP_DISTANCE = 180.0f; // 超过此距离直接贴合
+
+    private boolean isMicOn = false;
 
     private RenderProcessor(Context context) {
         this.context = context;
@@ -34,14 +50,16 @@ public class RenderProcessor {
     }
 
     public static void init(Context context) {
-        if (instance == null) instance = new RenderProcessor(context);
+        if (instance == null)
+            instance = new RenderProcessor(context);
     }
 
-    public static RenderProcessor getInstance() { return instance; }
+    public static RenderProcessor getInstance() {
+        return instance;
+    }
 
     public void setRenderData(RenderData data) {
         this.renderData = data;
-        // 注意：这里我们不再直接赋值给 coordinates，而是只更新 data 数据源
     }
 
     public void setMicState(boolean isOn) {
@@ -74,15 +92,25 @@ public class RenderProcessor {
     }
 
     public void draw(Canvas canvas) {
-        if (canvas == null) return;
+        if (canvas == null)
+            return;
 
         int w = canvas.getWidth();
         int h = canvas.getHeight();
 
+        int halfW = w / 2;
+
+        // 双目渲染（左右眼）
+        drawEye(canvas, 0, halfW, h); // 左眼
+        drawEye(canvas, halfW, halfW, h); // 右眼
+    }
+
+    private void drawEye(Canvas canvas, int offsetX, int w, int h) {
         // ================= 1. 绘制麦克风按钮 =================
-        float btnX = w * 0.9f;
+        float btnLocalX = w * 0.9f;
         float btnY = h * 0.85f;
         float btnRadius = 50f;
+        float realBtnX = offsetX + btnLocalX;
 
         if (isMicOn) {
             paintButton.setColor(Color.parseColor("#00AA00"));
@@ -94,41 +122,83 @@ public class RenderProcessor {
             btnRadius = 60f;
         }
 
-        canvas.drawCircle(btnX, btnY, btnRadius, paintButton);
+        canvas.drawCircle(realBtnX, btnY, btnRadius, paintButton);
         float textY = btnY + 10;
-        canvas.drawText(isMicOn ? "MIC ON" : "MIC OFF", btnX, textY, paintText);
+        canvas.drawText(isMicOn ? "MIC ON" : "MIC OFF", realBtnX, textY, paintText);
 
         if (renderData != null && renderData.getMicProgress() > 0) {
-            RectF btnRect = new RectF(btnX - btnRadius, btnY - btnRadius, btnX + btnRadius, btnY + btnRadius);
+            RectF btnRect = new RectF(realBtnX - btnRadius, btnY - btnRadius, realBtnX + btnRadius, btnY + btnRadius);
             btnRect.inset(-10, -10);
             canvas.drawArc(btnRect, -90, renderData.getMicProgress() * 360, false, paintProgress);
         }
 
-        // ================= 2. 绘制指尖光标 (带平滑算法) =================
+        // ================= 2. 绘制指尖光标（坐标外推版）=================
         if (renderData != null) {
+            // 原始归一化坐标
+            float normalizedX = renderData.getTipX();
+            float normalizedY = renderData.getTipY();
 
-            // 目标坐标 (Raw Target)
-            float targetX = renderData.getTipX() * w+ 570f;
-            float targetY = renderData.getTipY() * h- 130f;
+            // 👇 坐标映射参数（根据实际情况调整）
+            float inputMinX = 0.15f; // 手指最左时的 tipX 值
+            float inputMaxX = 0.85f; // 手指最右时的 tipX 值
+            float inputMinY = 0.15f; // 手指最上时的 tipY 值
+            float inputMaxY = 0.85f; // 手指最下时的 tipY 值
 
-            // 👇 2. 核心算法：插值平滑 (Lerp)
-            // 如果是第一次绘制 (smoothX 为 -1)，直接跳过去，避免从 (0,0) 飞过来
+            // 线性外推映射
+            float remappedX = (normalizedX - inputMinX) / (inputMaxX - inputMinX);
+            float remappedY = (normalizedY - inputMinY) / (inputMaxY - inputMinY);
+
+            // 防止超出范围
+            remappedX = Math.max(0.0f, Math.min(1.0f, remappedX));
+            remappedY = Math.max(0.0f, Math.min(1.0f, remappedY));
+
+            // 振幅调整（现在可以用较小的值）
+            float centeredX = (remappedX - 0.5f) * SCALE_X + 0.5f;
+            float centeredY = (remappedY - 0.5f) * SCALE_Y + 0.5f;
+
+            // 转换为像素坐标
+            float targetLocalX = centeredX * w + OFFSET_X;
+            float targetY = centeredY * h + OFFSET_Y;
+
+            // 平滑算法（保持不变）
             if (smoothX < 0 || smoothY < 0) {
-                smoothX = targetX;
+                smoothX = targetLocalX;
                 smoothY = targetY;
             } else {
-                // 公式：当前位置 = 当前位置 + (差距 * 因子)
-                smoothX = smoothX + (targetX - smoothX) * SMOOTH_FACTOR;
-                smoothY = smoothY + (targetY - smoothY) * SMOOTH_FACTOR;
+                float dx = targetLocalX - smoothX;
+                float dy = targetY - smoothY;
+                float distance = (float) Math.sqrt(dx * dx + dy * dy);
+
+                if (distance > FAST_SNAP_DISTANCE) {
+                    smoothX = targetLocalX;
+                    smoothY = targetY;
+                } else {
+                    float currentFactor;
+                    if (distance < JITTER_THRESHOLD) {
+                        currentFactor = MIN_FACTOR;
+                    } else if (distance > MOVE_THRESHOLD) {
+                        currentFactor = MAX_FACTOR;
+                    } else {
+                        float progress = (distance - JITTER_THRESHOLD) / (MOVE_THRESHOLD - JITTER_THRESHOLD);
+                        currentFactor = MIN_FACTOR + progress * (MAX_FACTOR - MIN_FACTOR);
+                    }
+                    smoothX = smoothX + dx * currentFactor;
+                    smoothY = smoothY + dy * currentFactor;
+                }
             }
 
-            // 使用平滑后的 smoothX, smoothY 进行绘制
-            canvas.drawCircle(smoothX, smoothY, 30f, paintCursor);
+            // 绘制
+            float clampedLocalX = Math.max(30f, Math.min(w - 30f, smoothX));
+            float clampedLocalY = Math.max(30f, Math.min(h - 30f, smoothY));
+            float realCursorX = offsetX + clampedLocalX;
+            float realCursorY = clampedLocalY;
+            canvas.drawCircle(realCursorX, realCursorY, 30f, paintCursor);
 
             if (renderData.getProgress() > 0 && !renderData.isMicHovered()) {
-                RectF rect = new RectF(smoothX - 30, smoothY - 30, smoothX + 30, smoothY + 30);
+                RectF rect = new RectF(realCursorX - 30, realCursorY - 30, realCursorX + 30, realCursorY + 30);
                 canvas.drawArc(rect, -90, renderData.getProgress() * 360, false, paintProgress);
             }
         }
+
     }
 }
