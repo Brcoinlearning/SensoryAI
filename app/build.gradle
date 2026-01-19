@@ -1,6 +1,6 @@
 plugins {
     id 'com.android.application'
-    id 'com.google.protobuf' version "0.9.4"
+    // [已删除] id 'com.google.protobuf' ...
 }
 
 android {
@@ -29,47 +29,15 @@ android {
         targetCompatibility JavaVersion.VERSION_1_8
     }
 
-    sourceSets {
-        main {
-            proto {
-                srcDir 'src/main/proto'
-            }
-        }
-    }
-
-    packagingOptions {
-        exclude 'META-INF/INDEX.LIST'
-        exclude 'META-INF/io.netty.versions.properties'
-    }
-
     buildFeatures {
         viewBinding = true
     }
+
+    // [已删除] sourceSets { main { proto { ... } } }
+    // [已删除] packagingOptions { exclude ... }
 }
 
-
-protobuf {
-    protoc {
-        artifact = 'com.google.protobuf:protoc:4.27.0'
-    }
-    plugins {
-        grpc {
-            artifact = 'io.grpc:protoc-gen-grpc-java:1.64.0' // CURRENT_GRPC_VERSION
-        }
-    }
-    generateProtoTasks {
-        all().each { task ->
-            task.builtins {
-                java { option 'lite' }
-            }
-            task.plugins {
-                grpc {
-                    option 'lite'
-                }
-            }
-        }
-    }
-}
+// [已删除] protobuf { ... } 整个块被删除
 
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
@@ -78,23 +46,26 @@ dependencies {
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
 
+    // Google MediaPipe (如果后面不用也可以删掉)
     implementation 'com.google.mediapipe:tasks-vision:latest.release'
 
-    implementation 'io.grpc:grpc-netty:1.64.0'
-    implementation 'io.grpc:grpc-okhttp:1.64.0' // CURRENT_GRPC_VERSION
-    implementation 'io.grpc:grpc-protobuf-lite:1.64.0' // CURRENT_GRPC_VERSION
-    implementation 'io.grpc:grpc-stub:1.64.0' // CURRENT_GRPC_VERSION
-    implementation 'org.apache.tomcat:annotations-api:6.0.53'
+    // [已删除] 所有 io.grpc 和 protobuf 相关的依赖
 
-    // 引入aar文件
+    // 引入aar文件 (雷鸟SDK)
     implementation(fileTree("libs"))
-    // 引入其他依赖项
+
+    // Android 核心库
     implementation 'androidx.core:core-ktx:1.7.0'
     implementation("androidx.fragment:fragment-ktx:1.5.3")
     implementation 'androidx.activity:activity-ktx:1.3.0-alpha08'
     implementation 'androidx.recyclerview:recyclerview:1.1.0'
-    // kotlin & coroutines
+
+    // Kotlin & 协程
     implementation 'androidx.core:core-ktx:1.8.0'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.6.1'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.1'
+
+    // [新增建议] Retrofit 网络库 (建议现在就加上，免得一会还要加)
+    implementation 'com.squareup.retrofit2:retrofit:2.9.0'
+    implementation 'com.squareup.retrofit2:converter-gson:2.9.0'
 }

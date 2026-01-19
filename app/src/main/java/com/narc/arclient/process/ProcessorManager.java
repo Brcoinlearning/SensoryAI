@@ -1,7 +1,6 @@
 package com.narc.arclient.process;
 
 import static android.content.ContentValues.TAG;
-
 import static com.narc.arclient.enums.ProcessorEnums.MONITOR_FREQUENCY;
 
 import android.content.Context;
@@ -9,7 +8,7 @@ import android.os.BatteryManager;
 import android.util.Log;
 
 import com.narc.arclient.MainActivity;
-import com.narc.arclient.network.RemoteRecognizeServiceStub;
+// [已删除] import com.narc.arclient.network.RemoteRecognizeServiceStub;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -74,13 +73,13 @@ public class ProcessorManager {
         }
 
         private void monitorThreadPool() {
+            // 只是打印日志，保留
             int normalExecutorQueueSize = normalExecutor.getQueue().size();
             int imageCopyExecutorQueueSize = imageCopyExecutor.getQueue().size();
             Log.d(TAG, String.format("normalExecutor queue size: %d imageCopyExecutor queue size: %d", normalExecutorQueueSize, imageCopyExecutorQueueSize));
         }
 
         private void monitorSystemResources() {
-            // 获取电池信息
             BatteryManager batteryManager = (BatteryManager) mainActivity.getSystemService(Context.BATTERY_SERVICE);
             String batteryLevel = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) + "";
             String cpuUsage = null;
@@ -96,10 +95,14 @@ public class ProcessorManager {
                 while ((line = reader.readLine()) != null) {
                     if (line.contains("com.narc")) {
                         String[] parts = line.split("\\s+");
-                        cpuUsage = String.format("%.2f", Double.parseDouble(parts[9]));
-                        memUsage = String.format("%.2f", Double.parseDouble(parts[10]));
-                        Log.d(TAG, String.format("CPU usage: %s MEM usage: %s battery level: %s", cpuUsage, memUsage, batteryLevel));
-                        RemoteRecognizeServiceStub.getInstance().systemStateReport(ProcessorManager.deviceSerialNumber, System.currentTimeMillis(), cpuUsage, memUsage, batteryLevel);
+                        // 注意：这里解析可能会因为不同手机系统 top 命令输出格式不同而报错，如果报错建议try-catch整个块
+                        if (parts.length > 10) {
+                            cpuUsage = String.format("%.2f", Double.parseDouble(parts[9]));
+                            memUsage = String.format("%.2f", Double.parseDouble(parts[10]));
+                            Log.d(TAG, String.format("CPU usage: %s MEM usage: %s battery level: %s", cpuUsage, memUsage, batteryLevel));
+
+                            // [已删除] RemoteRecognizeServiceStub.getInstance().systemStateReport(...)
+                        }
                         break;
                     }
                 }

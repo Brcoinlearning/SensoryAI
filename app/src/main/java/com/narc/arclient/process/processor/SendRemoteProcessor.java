@@ -1,23 +1,17 @@
 package com.narc.arclient.process.processor;
 
+import android.util.Log;
 import com.narc.arclient.entity.RecognizeTask;
-import com.narc.arclient.enums.TaskType;
-import com.narc.arclient.network.RemoteRecognizeServiceStub;
-import com.narc.arclient.process.Processor;
 
-public class SendRemoteProcessor implements Processor<RecognizeTask, RecognizeTask> {
-    private static final SendRemoteProcessor SEND_REMOTE_PROCESSOR = new SendRemoteProcessor();
+/**
+ * 空壳处理器：防止旧代码报错
+ */
+public class SendRemoteProcessor {
+    private static final String TAG = "SendRemote";
 
-    private SendRemoteProcessor() {
-    }
-
-    @Override
-    public RecognizeTask process(RecognizeTask recognizeTask) {
-        RemoteRecognizeServiceStub.getInstance().recognize(recognizeTask);
-        return null;
-    }
-
-    public static SendRemoteProcessor getInstance() {
-        return SEND_REMOTE_PROCESSOR;
+    public RecognizeTask process(RecognizeTask task) {
+        // 旧日志逻辑依赖 getTaskId，现已移除，改为普通日志
+        // Log.d(TAG, "Process task...");
+        return task;
     }
 }
