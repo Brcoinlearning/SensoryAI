@@ -25,19 +25,26 @@ public class CameraImageAvailableListener implements ImageReader.OnImageAvailabl
         // 这样可以避免积压，保证光标的实时性
         if (!RecognizeProcessor.getInstance().isReady()) {
             Image image = reader.acquireLatestImage();
-            if (image != null) image.close();
+            if (image != null)
+                image.close();
             return;
         }
 
         Image image = null;
         try {
             image = reader.acquireLatestImage();
-            if (image == null) return;
+            if (image == null)
+                return;
 
             long start = System.currentTimeMillis(); // ⏱️ 开始计时
 
             int width = image.getWidth();
             int height = image.getHeight();
+
+            // ✅ 改进：保存 YUV 数据拷贝供后续裁剪使用
+            // 这样 Image 对象可以立即释放，不会导致 ImageReader 缓冲池耗尽
+            RecognizeTask.HighResYUVCache yuvCache = createYUVCache(image);
+            RecognizeTask.setLatestHighResYUV(yuvCache);
 
             // 2. 【降维打击】设定缩放步长 (4)
             // 1920x1080 -> 480x270。这个尺寸对 AI 足够清晰，且速度快 16 倍。
@@ -66,6 +73,7 @@ public class CameraImageAvailableListener implements ImageReader.OnImageAvailabl
         } catch (Exception e) {
             Log.e(TAG, "Error: " + e.getMessage());
         } finally {
+            // ✅ 关键修复：立即关闭 Image，因为我们已经拷贝了 YUV 数据
             if (image != null) {
                 image.close();
             }
@@ -80,9 +88,19 @@ public class CameraImageAvailableListener implements ImageReader.OnImageAvailabl
 
         // 预分配 YUV 数据拷贝缓存
         Image.Plane[] planes = image.getPlanes();
-        int ySize = planes[0].getBuffer().remaining();
-        int uSize = planes[1].getBuffer().remaining();
-        int vSize = planes[2].getBuffer().remaining();
+
+        // ✅ 关键修复：重置位置再读取大小
+        ByteBuffer yBuffer = planes[0].getBuffer();
+        ByteBuffer uBuffer = planes[1].getBuffer();
+        ByteBuffer vBuffer = planes[2].getBuffer();
+
+        yBuffer.rewind();
+        uBuffer.rewind();
+        vBuffer.rewind();
+
+        int ySize = yBuffer.remaining();
+        int uSize = uBuffer.remaining();
+        int vSize = vBuffer.remaining();
 
         if (yBufferBytes == null || yBufferBytes.length < ySize) {
             yBufferBytes = new byte[ySize];
@@ -106,9 +124,14 @@ public class CameraImageAvailableListener implements ImageReader.OnImageAvailabl
         ByteBuffer uBuffer = planes[1].getBuffer();
         ByteBuffer vBuffer = planes[2].getBuffer();
 
+        // ✅ 关键修复：重置 buffer 位置再读取
+        // 每次获取 Image 时，ByteBuffer 的位置都在 0，但要保险起见，显式重置
+        yBuffer.rewind();
+        uBuffer.rewind();
+        vBuffer.rewind();
+
         // 1. 【批量拷贝】这是解决 2FPS 的关键！
         // JNI 批量拷贝非常快 (1080p 约 1-3ms)，比在循环里几十万次 get() 快得多。
-        // get(byte[]) 会自动处理 position，所以每次都要 rewind 或者重新获取
         yBuffer.get(yBufferBytes, 0, yBuffer.remaining());
         uBuffer.get(uBufferBytes, 0, uBuffer.remaining());
         vBuffer.get(vBufferBytes, 0, vBuffer.remaining());
@@ -134,11 +157,13 @@ public class CameraImageAvailableListener implements ImageReader.OnImageAvailabl
                 int uvIndex = uvIdxOffset + (srcX / 2) * uvPixelStride;
 
                 // 边界保护 (防止个别机型 stride 对齐问题导致越界)
-                if (uvIndex >= uBufferBytes.length) uvIndex = uBufferBytes.length - 1;
+                if (uvIndex >= uBufferBytes.length)
+                    uvIndex = uBufferBytes.length - 1;
 
                 int U = uBufferBytes[uvIndex] & 0xFF;
                 // V 的索引逻辑和 U 一样，只是来源于 V Plane
-                if (uvIndex >= vBufferBytes.length) uvIndex = vBufferBytes.length - 1;
+                if (uvIndex >= vBufferBytes.length)
+                    uvIndex = vBufferBytes.length - 1;
                 int V = vBufferBytes[uvIndex] & 0xFF;
 
                 // YUV 转 RGB 公式 (整数运算优化)
@@ -160,5 +185,39 @@ public class CameraImageAvailableListener implements ImageReader.OnImageAvailabl
                 argbArray[pIndex++] = (0xFF << 24) | (r << 16) | (g << 8) | b;
             }
         }
+    }
+
+    /**
+     * 从 Image 对象创建 YUV 缓存（数据拷贝，不依赖 Image 对象）
+     */
+    private RecognizeTask.HighResYUVCache createYUVCache(Image image) {
+        RecognizeTask.HighResYUVCache cache = new RecognizeTask.HighResYUVCache();
+
+        Image.Plane[] planes = image.getPlanes();
+        cache.width = image.getWidth();
+        cache.height = image.getHeight();
+        cache.yRowStride = planes[0].getRowStride();
+        cache.uvRowStride = planes[1].getRowStride();
+        cache.uvPixelStride = planes[1].getPixelStride();
+
+        // 拷贝 YUV 数据到 byte 数组
+        ByteBuffer yBuffer = planes[0].getBuffer();
+        ByteBuffer uBuffer = planes[1].getBuffer();
+        ByteBuffer vBuffer = planes[2].getBuffer();
+
+        // ✅ 关键修复：重置位置再读取
+        yBuffer.rewind();
+        uBuffer.rewind();
+        vBuffer.rewind();
+
+        cache.yData = new byte[yBuffer.remaining()];
+        cache.uData = new byte[uBuffer.remaining()];
+        cache.vData = new byte[vBuffer.remaining()];
+
+        yBuffer.get(cache.yData);
+        uBuffer.get(cache.uData);
+        vBuffer.get(cache.vData);
+
+        return cache;
     }
 }

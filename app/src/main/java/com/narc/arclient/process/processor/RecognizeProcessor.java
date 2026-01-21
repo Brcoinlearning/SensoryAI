@@ -201,9 +201,15 @@ public class RecognizeProcessor {
     // 将数据计算逻辑提取出来，保持代码整洁
     private RenderData calculateRenderData(GestureRecognizerResult result) {
         if (result == null || result.landmarks().isEmpty()) {
+            // if (frameCount % 30 == 0) {
+            // Log.w(TAG, "⚠️ 手势识别结果为空: result=" + (result == null) + ", landmarks=" +
+            // (result != null ? result.landmarks().size() : "null"));
+            // }
             hoverStartTime = 0;
             micHoverStartTime = 0;
-            return null;
+            // ⚠️ 返回默认RenderData而不是null，这样硬件拍照触发时有指尖坐标可用
+            // 使用屏幕中心作为默认指尖位置
+            return new RenderData(1.0f, 1.0f, 0f, false, false, "None", false, 0f, false);
         }
 
         String categoryName = "None";
@@ -219,10 +225,22 @@ public class RecognizeProcessor {
 
         List<NormalizedLandmark> landmarks = result.landmarks().get(0);
         if (landmarks.size() > 8) {
+            // ✅ 只识别右手（用户视角）：基于手腕位置判断
+            // landmark[0] 是手腕，前置摄像头是镜像的
+            // 手腕 X < 0.5 说明在画面左侧 = 用户的左手 → 忽略
+            NormalizedLandmark wrist = landmarks.get(0);
+            if (wrist.x() < 0.5f) {
+                // 这是用户的左手，忽略
+                hoverStartTime = 0;
+                micHoverStartTime = 0;
+                return null;
+            }
+
             NormalizedLandmark indexTip = landmarks.get(8);
             float cx = indexTip.x();
             float cy = indexTip.y();
-            // Log.d(TAG, "坐标: X=" + cx + ", Y=" + cy);// 日志
+            // Log.d(TAG, "✅ 指尖坐标: X=" + String.format("%.3f", cx) + ", Y=" +
+            // String.format("%.3f", cy) + ", 手势=" + categoryName);
             boolean isObjTriggered = false;
             float objProgress = 0f;
             boolean isMicHovered = false;

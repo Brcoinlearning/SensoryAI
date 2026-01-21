@@ -65,7 +65,14 @@ dependencies {
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.6.1'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.1'
 
-    // [新增建议] Retrofit 网络库 (建议现在就加上，免得一会还要加)
+    //网络请求
     implementation 'com.squareup.retrofit2:retrofit:2.9.0'
     implementation 'com.squareup.retrofit2:converter-gson:2.9.0'
+    implementation 'com.squareup.okhttp3:logging-interceptor:4.9.0' // 方便看日志
+
+    implementation 'com.squareup.okio:okio:3.4.0'
+    // 建议确保 OkHttp 也是最新版
+    implementation 'com.squareup.okhttp3:okhttp:4.11.0'
+    implementation 'com.squareup.okhttp3:logging-interceptor:4.11.0'
+
 }

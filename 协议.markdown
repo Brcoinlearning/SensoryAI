@@ -1,0 +1,52 @@
+智能体处理中间过程消息：
+
+{
+     "type": "agent_progress",
+     "stage": "perception|understanding|decision|response",
+     "status": "processing|completed",
+     "summary": "处理摘要",
+     "data": {}
+   }
+
+​	就是智能体在分析时会把一些中间过程生成一个摘要也传过来，对应感知层，理解层，决策层，响应层等等的消息，然后你这边就可以给用户显示智能体的中间过程，就像相当于像deepseek什么的那样流式输出用的
+
+
+
+智能体处理结果消息：
+
+{
+     "type": "agent_result",
+     "data": {
+       // 完整的智能体响应
+     },
+     "session_id": "xxx"
+   }
+
+​	这个session_id是后端这边用来管理记忆功能的，你这边随便给我传一个字符串就行，只要保证同一个session下的session_id相同就行
+
+
+
+实时字幕消息：
+
+{
+     "type": "subtitle",
+     "text": "识别到的文字",
+     "is_partial": true,  // true=部分结果, false=最终结果
+     "timestamp": 1234567890
+   }
+
+​	这个is_partial就是可以让用户知道系统还正在识别还是已经确认识别完成了
+
+
+
+错误信息：
+
+{
+     "type": "error",
+     "stage": "subtitle|agent",
+     "message": "错误信息"
+   }
+
+
+
+然后我目前假设的就是你给我传的音频数据块为原始PCM16音频字节流，终止符格式为{"type": "final", "session_id": "xxx"}或"__final__"
