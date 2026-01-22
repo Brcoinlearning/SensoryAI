@@ -16,6 +16,7 @@ public class RenderProcessor {
     // ============ 画笔定义 ============
     private Paint paintCursor; // 白色指尖圈
     private Paint paintCursorProgress; // 指尖上的绿色进度条
+    private Paint paintCloseProgress; // 张手关闭的红色读条
 
     // UI 画笔
     private Paint paintRedFill; // 苹果红 (实心)
@@ -39,6 +40,8 @@ public class RenderProcessor {
 
     // 交互状态管理
     private boolean isMicOn = false;
+    private boolean isLocked = false; // 识别后锁定，不再显示进度
+    private float closeProgress = 0f; // 张手关闭的进度
     private boolean isHoveringBtn = false;
     private long hoverStartTime = 0;
     private float hoverProgress = 0f;
@@ -100,6 +103,24 @@ public class RenderProcessor {
         hoverProgress = 0f;
     }
 
+    // 锁定指针（识别期间不再显示绿色进度，不响应悬停触发）
+    public void setLocked(boolean locked) {
+        this.isLocked = locked;
+        if (locked) {
+            // 清除悬停状态，避免残留进度
+            isHoveringBtn = false;
+            hoverProgress = 0f;
+            hoverStartTime = 0;
+            isHoveringSubtitleBtn = false;
+            subtitleHoverProgress = 0f;
+            subtitleHoverStartTime = 0;
+        }
+    }
+
+    public void setCloseProgress(float progress) {
+        this.closeProgress = Math.max(0f, Math.min(1f, progress));
+    }
+
     public void setSubtitleMockState(boolean isOn) {
         this.isSubtitleMockOn = isOn;
         isHoveringSubtitleBtn = false;
@@ -121,6 +142,14 @@ public class RenderProcessor {
         paintCursorProgress.setStrokeWidth(8f);
         paintCursorProgress.setStrokeCap(Paint.Cap.ROUND);
         paintCursorProgress.setAntiAlias(true);
+
+        // 张手关闭的红色读条
+        paintCloseProgress = new Paint();
+        paintCloseProgress.setColor(Color.parseColor("#FF3B30"));
+        paintCloseProgress.setStyle(Paint.Style.STROKE);
+        paintCloseProgress.setStrokeWidth(10f);
+        paintCloseProgress.setStrokeCap(Paint.Cap.ROUND);
+        paintCloseProgress.setAntiAlias(true);
 
         // 3. 按钮主体红色
         paintRedFill = new Paint();
@@ -217,7 +246,7 @@ public class RenderProcessor {
         }
 
         // ================= 3. 碰撞检测 (含防误触冷却) =================
-        if (isLeftEye && renderData != null) {
+        if (!isLocked && isLeftEye && renderData != null) {
             // 麦克风按钮检测
             float dist = (float) Math.hypot(clampedLocalX - btnLocalX, clampedLocalY - btnY);
             boolean inCooldown = (System.currentTimeMillis() - lastTriggerTime) < COOLDOWN_MS;
@@ -274,7 +303,7 @@ public class RenderProcessor {
         // ================= 4. UI 绘制 =================
 
         // A. 麦克风按钮悬停黄色读条
-        if (isHoveringBtn && hoverProgress > 0) {
+        if (!isLocked && isHoveringBtn && hoverProgress > 0) {
             float ringGap = 12f;
             float progressRadius;
             if (!isMicOn) {
@@ -307,7 +336,7 @@ public class RenderProcessor {
         }
 
         // C. 字幕模拟按钮悬停黄色读条
-        if (isHoveringSubtitleBtn && subtitleHoverProgress > 0) {
+        if (!isLocked && isHoveringSubtitleBtn && subtitleHoverProgress > 0) {
             float ringGap = 12f;
             float progressRadius;
             if (!isSubtitleMockOn) {
@@ -362,10 +391,23 @@ public class RenderProcessor {
             float realCursorY = clampedLocalY;
             canvas.drawCircle(realCursorX, realCursorY, 30f, paintCursor);
 
-            // 物体识别进度条 (仅在不悬停任何按钮时显示)
-            if (renderData.getProgress() > 0 && !isHoveringBtn && !isHoveringSubtitleBtn) {
+            // 进度颜色：未锁定显示绿色，锁定时改为更亮的灰色提示“冻结”
+            if (isLocked) {
+                paintCursorProgress.setColor(Color.parseColor("#AAAAAA"));
+            } else {
+                paintCursorProgress.setColor(Color.GREEN);
+            }
+
+            // 物体识别进度条 (仅在不悬停任何按钮且未锁定时显示)
+            if (!isLocked && renderData.getProgress() > 0 && !isHoveringBtn && !isHoveringSubtitleBtn) {
                 RectF rect = new RectF(realCursorX - 30, realCursorY - 30, realCursorX + 30, realCursorY + 30);
                 canvas.drawArc(rect, -90, renderData.getProgress() * 360, false, paintCursorProgress);
+            }
+
+            // 张手关闭读条（锁定期间可见），优先绘制红色
+            if (closeProgress > 0f) {
+                RectF rect = new RectF(realCursorX - 34, realCursorY - 34, realCursorX + 34, realCursorY + 34);
+                canvas.drawArc(rect, -90, closeProgress * 360, false, paintCloseProgress);
             }
         }
     }

@@ -6,83 +6,43 @@
     android:background="#000000"
     tools:context=".MainActivity">
 
-    <LinearLayout
+    <!-- 单套组件，BaseMirrorActivity 会负责双眼镜像 -->
+    <FrameLayout
+        android:id="@+id/root_eye_container"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:orientation="horizontal"
-        android:baselineAligned="false">
+        android:layout_height="match_parent">
 
-        <FrameLayout
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1">
+        <include
+            android:id="@+id/include_ar_card"
+            layout="@layout/item_ar_card"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:visibility="gone" />
 
-            <include
-                android:id="@+id/include_ar_card_left"
-                layout="@layout/item_ar_card"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:visibility="gone" />
+        <TextView
+            android:id="@+id/tv_status"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|center_horizontal"
+            android:layout_marginBottom="8dp"
+            android:text="系统就绪"
+            android:textColor="#00FF00"
+            android:textSize="12sp" />
 
-            <com.narc.arclient.ui.SubtitleStreamView
-                android:id="@+id/subtitle_left"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="bottom|center_horizontal"
-                android:layout_marginBottom="40dp"
-                android:paddingLeft="12dp"
-                android:paddingRight="12dp"
-                android:paddingTop="8dp"
-                android:paddingBottom="8dp"
-                android:visibility="gone" />
+    </FrameLayout>
 
-            <TextView
-                android:id="@+id/tv_status_left"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="bottom|center_horizontal"
-                android:layout_marginBottom="8dp"
-                android:text="系统就绪"
-                android:textColor="#00FF00"
-                android:textSize="12sp" />
-        </FrameLayout>
-
-        <FrameLayout
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1">
-
-            <include
-                android:id="@+id/include_ar_card_right"
-                layout="@layout/item_ar_card"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:visibility="gone" />
-
-            <com.narc.arclient.ui.SubtitleStreamView
-                android:id="@+id/subtitle_right"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="bottom|center_horizontal"
-                android:layout_marginBottom="40dp"
-                android:paddingLeft="12dp"
-                android:paddingRight="12dp"
-                android:paddingTop="8dp"
-                android:paddingBottom="8dp"
-                android:visibility="gone" />
-
-            <TextView
-                android:id="@+id/tv_status_right"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="bottom|center_horizontal"
-                android:layout_marginBottom="8dp"
-                android:text="系统就绪"
-                android:textColor="#00FF00"
-                android:textSize="12sp" />
-        </FrameLayout>
-
-    </LinearLayout>
+    <!-- 实时字幕 -->
+    <com.narc.arclient.ui.SubtitleStreamView
+        android:id="@+id/subtitle_view"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="40dp"
+        android:paddingLeft="12dp"
+        android:paddingRight="12dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
+        android:visibility="gone" />
 
     <LinearLayout
         android:id="@+id/debug_panel"
@@ -98,7 +58,7 @@
             android:id="@+id/btn_mock_data"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="模拟手势触发"/>
+            android:text="模拟手势触发" />
 
     </LinearLayout>
 

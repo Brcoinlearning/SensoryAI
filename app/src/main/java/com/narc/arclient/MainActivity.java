@@ -18,6 +18,7 @@ import android.view.View;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.widget.TextView;
+import android.widget.FrameLayout;
 import com.narc.arclient.ui.SubtitleStreamView;
 import android.widget.Toast;
 
@@ -43,19 +44,20 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
 
     // UI 组件
     private CustomDrawView customDrawView;
-    private TextView tvStatusLeft, tvStatusRight;
-    private SubtitleStreamView subtitleLeft, subtitleRight;
+    // 注意：卡片通过 mBindingPair 访问，不用 findViewById
     // Demo: 模拟字幕流（仅调试）
     private Handler subtitleDemoHandler;
     private boolean subtitleDemoRunning = false;
 
     // AR 卡片组件
-    private View cardLeft, cardRight;
-    private TextView tvTitleLeft, tvContentLeft;
-    private TextView tvTitleRight, tvContentRight;
+    private TextView tvCardTitle, tvCardContent;
+    private float lastCardX = -1f; // 跟随平滑用
+    private float lastCardY = -1f; // 跟随平滑用
 
     // 状态控制
     private boolean isAnalyzing = false;
+    private long openPalmStartTime = 0; // 张手关闭卡片的长按起点
+    private static final long CLOSE_HOLD_MS = 800; // 张手关闭所需时长
     private long lastTriggerTime = 0;
     private static final long COOLDOWN_MS = 1000; // 改为1秒防抖
     private boolean isMicEnabled = false;
@@ -228,34 +230,12 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
     }
 
     /**
-     * 绑定布局中的 View
+     * 绑定布局中的 View（通过 mBindingPair 访问卡片和字幕）
      */
     private void initViews() {
-        // 状态栏
-        tvStatusLeft = findViewById(R.id.tv_status_left);
-        tvStatusRight = findViewById(R.id.tv_status_right);
-
-        // 字幕栏 (请确保 activity_main.xml 里加了这两个 id)
-        subtitleLeft = findViewById(R.id.subtitle_left);
-        subtitleRight = findViewById(R.id.subtitle_right);
-        
-        Log.d(TAG, "字幕视图绑定: subtitleLeft=" + (subtitleLeft != null) + ", subtitleRight=" + (subtitleRight != null));
-
-        // AR 卡片 (Left)
-        cardLeft = findViewById(R.id.include_ar_card_left);
-        if (cardLeft != null) {
-            tvTitleLeft = cardLeft.findViewById(R.id.tv_card_title);
-            tvContentLeft = cardLeft.findViewById(R.id.tv_card_content);
-        }
-
-        // AR 卡片 (Right)
-        cardRight = findViewById(R.id.include_ar_card_right);
-        if (cardRight != null) {
-            tvTitleRight = cardRight.findViewById(R.id.tv_card_title);
-            tvContentRight = cardRight.findViewById(R.id.tv_card_content);
-        }
-        
-        Log.d(TAG, "卡片视图绑定: cardLeft=" + (cardLeft != null) + ", cardRight=" + (cardRight != null));
+        Log.d(TAG, "================== 开始初始化 Views ==================");
+        Log.d(TAG, "mBindingPair=" + (mBindingPair != null));
+        Log.d(TAG, "================== 初始化完成 ==================");
     }
 
     private void checkPermissionsAndStart() {
@@ -348,19 +328,19 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
     }
 
     /**
-     * 更新实时字幕
+     * 更新实时字幕（使用 mBindingPair 实现合目镜像）
      */
-
     private void updateSubtitle(String text, boolean isFinal) {
-        Log.d(TAG, "updateSubtitle: text=" + text + ", isFinal=" + isFinal + 
-              ", left=" + (subtitleLeft != null) + ", right=" + (subtitleRight != null));
         runOnUiThread(() -> {
-            if (subtitleLeft != null) {
-                subtitleLeft.updateSubtitle(text, isFinal);
-            }
-            if (subtitleRight != null) {
-                subtitleRight.updateSubtitle(text, isFinal);
-            }
+            // 使用 mBindingPair.updateView 更新字幕，这样会同时更新左右两眼
+            mBindingPair.updateView(binding -> {
+                if (binding.subtitleView != null) {
+                    binding.subtitleView.updateSubtitle(text, isFinal);
+                }
+                return null;
+            });
+
+            Log.d(TAG, "✅ [合目镜像] 字幕更新到左右两眼: " + text);
         });
     }
 
@@ -390,10 +370,12 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
 
         // 循环演示：10.5s 后再次开始
         subtitleDemoHandler.postDelayed(() -> {
-            if (subtitleLeft != null)
-                subtitleLeft.clearImmediate();
-            if (subtitleRight != null)
-                subtitleRight.clearImmediate();
+            // 使用 mBindingPair 清除字幕
+            mBindingPair.updateView(binding -> {
+                if (binding.subtitleView != null)
+                    binding.subtitleView.clearImmediate();
+                return null;
+            });
             subtitleDemoRunning = false;
             startSubtitleMockDemo();
         }, 10500);
@@ -410,10 +392,12 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
         if (subtitleDemoHandler != null) {
             subtitleDemoHandler.removeCallbacksAndMessages(null);
         }
-        if (subtitleLeft != null)
-            subtitleLeft.clearImmediate();
-        if (subtitleRight != null)
-            subtitleRight.clearImmediate();
+        // 使用 mBindingPair 清除字幕
+        mBindingPair.updateView(binding -> {
+            if (binding.subtitleView != null)
+                binding.subtitleView.clearImmediate();
+            return null;
+        });
     }
 
     @Override
@@ -471,10 +455,22 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
 
         // 2. 处理手势触发的【视觉识别】(HTTP 拍照)
         if (isAnalyzing) {
+            Log.d(TAG, "🔄 [分析中] isAnalyzing=true, openPalm=" + renderData.isOpenPalm());
             // 如果正在分析中...
             if (renderData.isOpenPalm()) {
-                closeCard(); // 张手关闭卡片
-                return;
+                long now = System.currentTimeMillis();
+                if (openPalmStartTime == 0)
+                    openPalmStartTime = now;
+                float holdProgress = Math.min(1f, (float) (now - openPalmStartTime) / CLOSE_HOLD_MS);
+                RenderProcessor.getInstance().setCloseProgress(holdProgress);
+                if (now - openPalmStartTime >= CLOSE_HOLD_MS) {
+                    Log.d(TAG, "✋ [张手] 长按完成，关闭卡片");
+                    closeCard();
+                    return;
+                }
+            } else {
+                openPalmStartTime = 0;
+                RenderProcessor.getInstance().setCloseProgress(0f);
             }
             // 更新卡片位置跟随手指
             updateCardPosition(renderData.getTipX(), renderData.getTipY());
@@ -485,6 +481,7 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
                     // 显示 HTTP 返回的图片识别结果
                     setCardText(recognizeTask.getRecognizeResult(), "视觉识别成功", Color.GREEN);
                     triggerVibration();
+                    // 不自动关闭，等待用户张手关闭
                 });
             }
 
@@ -493,8 +490,14 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
             // 且不在麦克风录音模式下 (避免冲突)
             if (renderData.isTriggered() && !isMicEnabled) {
                 long now = System.currentTimeMillis();
+                Log.d(TAG, "👆 [触发检测] isTriggered=true, 冷却时间=" + (now - lastTriggerTime) + "ms, COOLDOWN=" + COOLDOWN_MS
+                        + "ms");
                 if (now - lastTriggerTime > COOLDOWN_MS) {
+                    Log.d(TAG, "✅ [触发成功] 冷却已过，开始分析");
                     isAnalyzing = true;
+                    RenderProcessor.getInstance().setLocked(true);
+                    RenderProcessor.getInstance().setCloseProgress(0f);
+                    openPalmStartTime = 0;
                     lastTriggerTime = now;
                     triggerVibration();
 
@@ -521,6 +524,7 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
                                     Log.e(TAG, "高清全图上传失败", e);
                                     runOnUiThread(() -> {
                                         setCardText("❌ 识别失败", "网络错误，请重试", Color.RED);
+                                        // 不自动关闭，等待用户张手关闭
                                     });
                                 } finally {
                                     if (fullHighResBitmap != null && !fullHighResBitmap.isRecycled()) {
@@ -538,13 +542,16 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
         }
     }
 
-    // 更新底部状态栏文字
+    // 更新底部状态栏文字（使用 mBindingPair 实现合目镜像）
     public void updateStatus(String msg) {
         runOnUiThread(() -> {
-            if (tvStatusLeft != null)
-                tvStatusLeft.setText(msg);
-            if (tvStatusRight != null)
-                tvStatusRight.setText(msg);
+            mBindingPair.updateView(binding -> {
+                if (binding.tvStatus != null) {
+                    binding.tvStatus.setText(msg);
+                }
+                return null;
+            });
+            Log.d(TAG, "✅ [合目镜像] 状态栏更新到左右两眼: " + msg);
         });
     }
 
@@ -652,99 +659,148 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
                     if (fullHighResBitmap != null && !fullHighResBitmap.isRecycled()) {
                         fullHighResBitmap.recycle();
                     }
-                    isAnalyzing = false;
-                    Log.d(TAG, "🔳 [硬件拍照] 完成");
+                    // 保持 isAnalyzing=true，等待用户张手关闭
+                    Log.d(TAG, "🔳 [硬件拍照] 完成，等待张手关闭");
                 }
             });
             return true;
         } else {
             updateStatus("未获取到高清帧，稍后重试");
             Log.w(TAG, "🔳 [硬件拍照] 失败：完整高清图生成失败");
-            isAnalyzing = false;
+            // 保持 isAnalyzing=true，等待用户张手关闭或冷却后再开
             return false;
         }
     }
 
     // 更新 AR 卡片位置
     private void updateCardPosition(float tipX, float tipY) {
-        if (cardLeft == null || cardRight == null)
-            return;
-        if (cardLeft.getVisibility() != View.VISIBLE)
-            return;
+        mBindingPair.updateView(binding -> {
+            View cardRoot = binding.includeArCard.getRoot();
+            if (cardRoot == null) {
+                Log.w(TAG, "⚠️ 卡片为null，无法更新位置");
+                return null;
+            }
 
-        DisplayMetrics metrics = getResources().getDisplayMetrics();
-        float screenW = metrics.widthPixels;
-        float screenH = metrics.heightPixels;
-        float halfW = screenW / 2.0f; // 双目分屏，宽度减半
+            if (cardRoot.getVisibility() != View.VISIBLE) {
+                Log.d(TAG, "⚠️ 卡片不可见，跳过位置更新");
+                return null;
+            }
 
-        // 现在卡片在各自的 FrameLayout 中，使用相对坐标
-        float baseX = tipX * halfW;  // 在各自眼视图内的X坐标
-        float baseY = tipY * screenH;
+            // 使用实际父容器尺寸而非整机分辨率，避免坐标超出眼镜视区
+            int parentW = binding.getRoot().getWidth();
+            int parentH = binding.getRoot().getHeight();
+            if (parentW == 0 || parentH == 0) {
+                DisplayMetrics metrics = getResources().getDisplayMetrics();
+                parentW = metrics.widthPixels;
+                parentH = metrics.heightPixels;
+            }
 
-        float offsetX = 50f;
-        float offsetY = -250f;
+            // 指尖丢失或越界时，使用默认位置（屏幕偏右且居中略上）
+            boolean tipInvalid = (tipX <= 0.02f || tipX >= 0.98f || tipY <= 0.02f || tipY >= 0.98f);
+            float safeTipX = tipInvalid ? 0.58f : tipX; // 更靠中心，避免过右
+            float safeTipY = tipInvalid ? 0.52f : tipY;
 
-        float tempY = baseY + offsetY;
-        if (tempY < 0)
-            tempY = 20;
+            float baseX = safeTipX * parentW;
+            float baseY = safeTipY * parentH;
 
-        float finalX = baseX + offsetX;
-        float finalY = tempY;
+            float offsetX = 40f; // 轻微右移，避免遮挡指尖
+            float offsetY = -80f; // 上移，避免超出视野
 
-        runOnUiThread(() -> {
-            // 左右眼卡片使用相同的相对坐标（相对于各自的父 FrameLayout）
-            cardLeft.setX(finalX);
-            cardLeft.setY(finalY);
-            cardRight.setX(finalX);
-            cardRight.setY(finalY);
+            float tempY = baseY + offsetY;
+            if (tempY < 0)
+                tempY = 20;
+
+            float finalX = baseX + offsetX;
+            float finalY = tempY;
+
+            // 简单低通滤波，改善跟随平滑度
+            if (lastCardX >= 0 && lastCardY >= 0) {
+                finalX = lastCardX * 0.6f + finalX * 0.4f;
+                finalY = lastCardY * 0.6f + finalY * 0.4f;
+            }
+
+            // 限制在屏幕范围内，避免被镜像裁剪
+            int cardW = cardRoot.getWidth();
+            int cardH = cardRoot.getHeight();
+            if (cardW == 0)
+                cardW = cardRoot.getMeasuredWidth();
+            if (cardH == 0)
+                cardH = cardRoot.getMeasuredHeight();
+            finalX = Math.max(0, Math.min(finalX, parentW - cardW));
+            finalY = Math.max(0, Math.min(finalY, parentH - cardH));
+
+            // 记录上次位置用于平滑
+            lastCardX = finalX;
+            lastCardY = finalY;
+
+            // 使用 LayoutParams 定位（setX/setY 在 FrameLayout 中不工作）
+            FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) cardRoot.getLayoutParams();
+            if (params == null) {
+                params = new FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.WRAP_CONTENT,
+                        FrameLayout.LayoutParams.WRAP_CONTENT);
+            }
+            params.leftMargin = (int) finalX;
+            params.topMargin = (int) finalY;
+            params.gravity = android.view.Gravity.NO_GRAVITY; // 禁用重力，使用 margin 定位
+            cardRoot.setLayoutParams(params);
+
+            Log.d(TAG, String.format(
+                    "✅ 卡片位置已更新: parent=%dx%d card=%dx%d tipXY=(%.2f,%.2f) safe=(%.2f,%.2f) -> finalXY=(%.0f, %.0f)",
+                    parentW, parentH, cardW, cardH, tipX, tipY, safeTipX, safeTipY, finalX, finalY));
+            return null;
         });
     }
 
     // 显示 AR 卡片 (初始状态)
     private void startCardSequence() {
-        Log.d(TAG, "startCardSequence: 显示卡片, cardLeft=" + (cardLeft != null) + ", cardRight=" + (cardRight != null));
-        runOnUiThread(() -> {
-            if (cardLeft != null) {
-                cardLeft.setVisibility(View.VISIBLE);
-                Log.d(TAG, "cardLeft 设置为 VISIBLE");
+        mBindingPair.updateView(binding -> {
+            View cardRoot = binding.includeArCard.getRoot();
+            if (cardRoot != null) {
+                lastCardX = -1f;
+                lastCardY = -1f;
+                cardRoot.setVisibility(View.VISIBLE);
+                cardRoot.bringToFront();
+                Log.d(TAG, "✅ [卡片已显示] via mBindingPair");
+                setCardText("🔍 分析中...", "请稍候...", Color.YELLOW);
+            } else {
+                Log.e(TAG, "❌ 卡片为null，无法显示");
             }
-            if (cardRight != null) {
-                cardRight.setVisibility(View.VISIBLE);
-                Log.d(TAG, "cardRight 设置为 VISIBLE");
-            }
-            if (cardLeft != null)
-                cardLeft.bringToFront();
-            if (cardRight != null)
-                cardRight.bringToFront();
-            setCardText("🔍 分析中...", "请稍候...", Color.YELLOW);
+            return null;
         });
     }
 
     // 关闭 AR 卡片
     private void closeCard() {
-        runOnUiThread(() -> {
-            if (cardLeft != null)
-                cardLeft.setVisibility(View.GONE);
-            if (cardRight != null)
-                cardRight.setVisibility(View.GONE);
-            triggerVibration();
+        mBindingPair.updateView(binding -> {
+            View cardRoot = binding.includeArCard.getRoot();
+            if (cardRoot != null) {
+                cardRoot.setVisibility(View.GONE);
+                Log.d(TAG, "✅ [卡片已关闭] via mBindingPair");
+            }
+            return null;
         });
         isAnalyzing = false;
+        RenderProcessor.getInstance().setLocked(false);
+        RenderProcessor.getInstance().setCloseProgress(0f);
+        openPalmStartTime = 0;
+        lastCardX = -1f;
+        lastCardY = -1f;
         updateStatus("卡片已关闭");
+        triggerVibration();
     }
 
     // 设置卡片文字
     private void setCardText(String title, String content, int color) {
-        if (tvTitleLeft != null) {
-            tvTitleLeft.setText(title);
-            tvTitleLeft.setTextColor(color);
-            tvContentLeft.setText(content);
-        }
-        if (tvTitleRight != null) {
-            tvTitleRight.setText(title);
-            tvTitleRight.setTextColor(color);
-            tvContentRight.setText(content);
-        }
+        mBindingPair.updateView(binding -> {
+            if (binding.includeArCard.tvCardTitle != null && binding.includeArCard.tvCardContent != null) {
+                binding.includeArCard.tvCardTitle.setText(title);
+                binding.includeArCard.tvCardTitle.setTextColor(color);
+                binding.includeArCard.tvCardContent.setText(content);
+                Log.d(TAG, "✅ [卡片文本已更新] title=" + title);
+            }
+            return null;
+        });
     }
 
     // 震动反馈
