@@ -42,7 +42,7 @@ public class RecognizeProcessor {
     private long micHoverStartTime = 0;
 
     private static final float MOVE_THRESHOLD = 0.05f;
-    private static final long HOVER_DURATION = 1000;
+    private static final long HOVER_DURATION = 3000;
     private static final float BUTTON_AREA_X = 0.8f;
     private static final float BUTTON_AREA_Y = 0.75f;
 
@@ -167,7 +167,7 @@ public class RecognizeProcessor {
         frameCount++;
         long now = System.currentTimeMillis();
         if (now - lastFrameTime >= 1000) {
-            Log.i(TAG, "🚀 当前 AI 真实帧率: " + frameCount + " FPS");
+            //Log.i(TAG, "🚀 当前 AI 真实帧率: " + frameCount + " FPS");
             frameCount = 0;
             lastFrameTime = now;
         }

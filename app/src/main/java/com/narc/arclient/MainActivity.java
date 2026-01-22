@@ -59,7 +59,7 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
     private long openPalmStartTime = 0; // 张手关闭卡片的长按起点
     private static final long CLOSE_HOLD_MS = 800; // 张手关闭所需时长
     private long lastTriggerTime = 0;
-    private static final long COOLDOWN_MS = 1000; // 改为1秒防抖
+    private static final long COOLDOWN_MS = 8000; // 改为8秒防抖
     private boolean isMicEnabled = false;
 
     // 最近一帧的渲染数据，用于硬件按键触发时复用指尖坐标
@@ -340,7 +340,7 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
                 return null;
             });
 
-            Log.d(TAG, "✅ [合目镜像] 字幕更新到左右两眼: " + text);
+            //Log.d(TAG, "✅ [合目镜像] 字幕更新到左右两眼: " + text);
         });
     }
 
@@ -455,7 +455,7 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
 
         // 2. 处理手势触发的【视觉识别】(HTTP 拍照)
         if (isAnalyzing) {
-            Log.d(TAG, "🔄 [分析中] isAnalyzing=true, openPalm=" + renderData.isOpenPalm());
+            //Log.d(TAG, "🔄 [分析中] isAnalyzing=true, openPalm=" + renderData.isOpenPalm());
             // 如果正在分析中...
             if (renderData.isOpenPalm()) {
                 long now = System.currentTimeMillis();
@@ -494,49 +494,11 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
                         + "ms");
                 if (now - lastTriggerTime > COOLDOWN_MS) {
                     Log.d(TAG, "✅ [触发成功] 冷却已过，开始分析");
-                    isAnalyzing = true;
                     RenderProcessor.getInstance().setLocked(true);
                     RenderProcessor.getInstance().setCloseProgress(0f);
                     openPalmStartTime = 0;
                     lastTriggerTime = now;
-                    triggerVibration();
-
-                    RecognizeTask.HighResYUVCache yuvCache = RecognizeTask.getLatestHighResYUV();
-                    if (yuvCache != null) {
-                        Bitmap fullHighResBitmap = convertFullYUVToRGB(yuvCache);
-                        if (fullHighResBitmap != null) {
-                            // 用同一帧作为本地保存与上传的来源，保证一致性
-                            Bitmap saveCopy = fullHighResBitmap.copy(Bitmap.Config.ARGB_8888, true);
-                            saveDebugImage(saveCopy, renderData.getTipX(), renderData.getTipY());
-
-                            ProcessorManager.normalExecutor.execute(() -> {
-                                try {
-                                    RecognizeTask uploadTask = new RecognizeTask(fullHighResBitmap);
-                                    SendRemoteProcessor processor = new SendRemoteProcessor();
-                                    RecognizeTask result = processor.process(uploadTask);
-
-                                    if (recognizeTask != null) {
-                                        recognizeTask.setRecognizeResult(result.getRecognizeResult());
-                                    }
-
-                                    Log.i(TAG, "高清全图上传完成");
-                                } catch (Exception e) {
-                                    Log.e(TAG, "高清全图上传失败", e);
-                                    runOnUiThread(() -> {
-                                        setCardText("❌ 识别失败", "网络错误，请重试", Color.RED);
-                                        // 不自动关闭，等待用户张手关闭
-                                    });
-                                } finally {
-                                    if (fullHighResBitmap != null && !fullHighResBitmap.isRecycled()) {
-                                        fullHighResBitmap.recycle();
-                                    }
-                                }
-                            });
-                        }
-                    }
-
-                    // 显示 "正在识别..." 卡片
-                    startCardSequence();
+                    performPhotoCapture(renderData.getTipX(), renderData.getTipY(), "悬停触发");
                 }
             }
         }
@@ -612,63 +574,66 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
         }
 
         Log.d(TAG, "🔳 [硬件拍照] 状态检查通过，准备拍照...");
+        performPhotoCapture(lastRenderData.getTipX(), lastRenderData.getTipY(), "硬件按键触发");
+        return true;
+    }
+
+    /**
+     * 通用拍照上传方法 - 被悬停触发和硬件按键触发共用
+     */
+    private void performPhotoCapture(float tipX, float tipY, String source) {
         isAnalyzing = true;
-        lastTriggerTime = now;
         triggerVibration();
 
         RecognizeTask.HighResYUVCache yuvCache = RecognizeTask.getLatestHighResYUV();
-        Log.d(TAG, "🔳 [硬件拍照] YUV缓存: " + (yuvCache != null ? "有效" : "为null"));
+        Log.d(TAG, "📷 [" + source + "] YUV缓存: " + (yuvCache != null ? "有效" : "为null"));
 
         if (yuvCache == null) {
             updateStatus("未获取到高清帧，稍后重试");
-            Log.w(TAG, "🔳 [硬件拍照] 失败：YUV缓存为null");
+            Log.w(TAG, "📷 [" + source + "] 失败：YUV缓存为null");
             isAnalyzing = false;
-            return false;
+            return;
         }
 
-        // 先将完整高清帧转换为 RGB，并保存为 PNG（不裁剪，完整保留原图）
-        Log.d(TAG, "🔳 [硬件拍照] 开始生成完整高清图");
+        Log.d(TAG, "📷 [" + source + "] 开始生成完整高清图");
         Bitmap fullHighResBitmap = convertFullYUVToRGB(yuvCache);
         if (fullHighResBitmap != null) {
-            Log.d(TAG, "🔳 [硬件拍照] 完整高清图生成成功: " + fullHighResBitmap.getWidth() + "x" + fullHighResBitmap.getHeight());
+            Log.d(TAG, "📷 [" + source + "] 完整高清图生成成功: " + fullHighResBitmap.getWidth() + "x" + fullHighResBitmap.getHeight());
             Bitmap saveCopy = fullHighResBitmap.copy(Bitmap.Config.ARGB_8888, true);
-            saveDebugImage(saveCopy, lastRenderData.getTipX(), lastRenderData.getTipY());
+            saveDebugImage(saveCopy, tipX, tipY);
 
             startCardSequence();
 
             ProcessorManager.normalExecutor.execute(() -> {
                 try {
-                    Log.d(TAG, "🔳 [硬件拍照] 线程池: 开始上传");
+                    Log.d(TAG, "📷 [" + source + "] 线程池: 开始上传");
                     RecognizeTask uploadTask = new RecognizeTask(fullHighResBitmap);
                     SendRemoteProcessor processor = new SendRemoteProcessor();
                     RecognizeTask result = processor.process(uploadTask);
-                    Log.i(TAG, "🔳 [硬件拍照] 高清全图上传完成, result=" + result);
+                    Log.i(TAG, "📷 [" + source + "] 高清全图上传完成, result=" + result);
 
                     runOnUiThread(() -> {
                         if (result != null && result.getRecognizeResult() != null) {
-                            Log.d(TAG, "🔳 [硬件拍照] 识别结果: " + result.getRecognizeResult());
-                            setCardText(result.getRecognizeResult(), "硬件触发识别成功", Color.GREEN);
+                            Log.d(TAG, "📷 [" + source + "] 识别结果: " + result.getRecognizeResult());
+                            setCardText(result.getRecognizeResult(), "识别成功", Color.GREEN);
                         } else {
-                            Log.w(TAG, "🔳 [硬件拍照] 结果为空");
+                            Log.w(TAG, "📷 [" + source + "] 结果为空");
                         }
                     });
                 } catch (Exception e) {
-                    Log.e(TAG, "🔳 [硬件拍照] 上传失败", e);
+                    Log.e(TAG, "📷 [" + source + "] 上传失败", e);
                     runOnUiThread(() -> setCardText("❌ 识别失败", "网络错误，请重试", Color.RED));
                 } finally {
                     if (fullHighResBitmap != null && !fullHighResBitmap.isRecycled()) {
                         fullHighResBitmap.recycle();
                     }
-                    // 保持 isAnalyzing=true，等待用户张手关闭
-                    Log.d(TAG, "🔳 [硬件拍照] 完成，等待张手关闭");
+                    Log.d(TAG, "📷 [" + source + "] 完成，等待张手关闭");
                 }
             });
-            return true;
         } else {
             updateStatus("未获取到高清帧，稍后重试");
-            Log.w(TAG, "🔳 [硬件拍照] 失败：完整高清图生成失败");
-            // 保持 isAnalyzing=true，等待用户张手关闭或冷却后再开
-            return false;
+            Log.w(TAG, "📷 [" + source + "] 失败：完整高清图生成失败");
+            isAnalyzing = false;
         }
     }
 
@@ -745,11 +710,14 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
             params.gravity = android.view.Gravity.NO_GRAVITY; // 禁用重力，使用 margin 定位
             cardRoot.setLayoutParams(params);
 
-            Log.d(TAG, String.format(
-                    "✅ 卡片位置已更新: parent=%dx%d card=%dx%d tipXY=(%.2f,%.2f) safe=(%.2f,%.2f) -> finalXY=(%.0f, %.0f)",
-                    parentW, parentH, cardW, cardH, tipX, tipY, safeTipX, safeTipY, finalX, finalY));
+            //Log.d(TAG, String.format(
+           //        "✅ 卡片位置已更新: parent=%dx%d card=%dx%d tipXY=(%.2f,%.2f) safe=(%.2f,%.2f) -> finalXY=(%.0f, %.0f)",
+           //        parentW, parentH, cardW, cardH, tipX, tipY, safeTipX, safeTipY, finalX, finalY));
             return null;
+
+
         });
+
     }
 
     // 显示 AR 卡片 (初始状态)
