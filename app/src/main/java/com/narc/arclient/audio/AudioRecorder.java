@@ -43,14 +43,19 @@ public class AudioRecorder {
 
     @SuppressLint("MissingPermission") // 权限在 Activity 中检查
     public void start(Context context) {
-        if (isRecording)
+        Log.d(TAG, "⏺️ start() 被调用，isRecording=" + isRecording + ", audioRecord=" + (audioRecord != null ? "not null" : "null"));
+        
+        if (isRecording) {
+            Log.w(TAG, "已经在录音中，忽略重复调用");
             return;
+        }
 
         if (context == null) {
             Log.e(TAG, "Context 为空，无法创建本地音频文件");
             return;
         }
         appContext = context.getApplicationContext();
+        Log.d(TAG, "Context 初始化成功");
 
         bufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT);
         audioRecord = new AudioRecord(MediaRecorder.AudioSource.MIC, SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT,
@@ -64,10 +69,12 @@ public class AudioRecorder {
         // 1. 连接 WebSocket
         WebSocketManager.getInstance().connect();
 
-        // 1.5 创建本地音频文件 (WAV)
+        // 1.5 创建本地音频文件 (WAV) - 保存到公共 Music 目录
         try {
-            File dir = appContext.getExternalFilesDir("audio_debug");
-            if (dir != null && !dir.exists()) {
+            // 使用公共 Music 目录，Device Explorer 可以访问
+            File musicDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_MUSIC);
+            File dir = new File(musicDir, "ARClient_Audio");
+            if (!dir.exists()) {
                 dir.mkdirs();
             }
             String ts = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
@@ -109,8 +116,12 @@ public class AudioRecorder {
     }
 
     public void stop() {
-        if (!isRecording)
+        Log.d(TAG, "⏹️ stop() 被调用");
+        
+        if (!isRecording) {
+            Log.w(TAG, "当前未在录音，忽略停止调用");
             return;
+        }
 
         isRecording = false;
         try {

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 卡片优雅淡出动画 -->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:interpolator="@android:anim/accelerate_interpolator"
+    android:fillAfter="true">
+    
+    <alpha
+        android:fromAlpha="1.0"
+        android:toAlpha="0.0"
+        android:duration="@integer/anim_duration_fast"/>
+    
+    <scale
+        android:fromXScale="1.0"
+        android:fromYScale="1.0"
+        android:toXScale="0.92"
+        android:toYScale="0.92"
+        android:pivotX="50%"
+        android:pivotY="50%"
+        android:duration="@integer/anim_duration_fast"/>
+    
+    <translate
+        android:fromYDelta="0"
+        android:toYDelta="-20dp"
+        android:duration="@integer/anim_duration_fast"/>
+</set>

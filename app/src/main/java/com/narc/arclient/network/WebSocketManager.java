@@ -22,8 +22,9 @@ import java.util.concurrent.TimeUnit;
 
 public class WebSocketManager {
     private static final String TAG = "WebSocketManager";
-    // ⚠️ 请替换为你的真实公网/内网地址 (ws:// 或 wss://)
-    private static final String WS_URL = "ws://192.168.1.100:8080/ws/chat";
+    // ngrok 公网地址 - 使用 wss:// 安全连接，强制 IPv4
+    // 注意：ngrok 域名会自动解析，这里我们通过 OkHttpClient 配置强制 IPv4
+    private static final String WS_URL = "wss://emotionless-kneadingly-tora.ngrok-free.dev/ws/audio_stream";
 
     private static WebSocketManager instance;
     private WebSocket webSocket;
@@ -56,6 +57,22 @@ public class WebSocketManager {
         client = new OkHttpClient.Builder()
                 .readTimeout(0, TimeUnit.MILLISECONDS) // WebSocket 必须禁用超时
                 .pingInterval(10, TimeUnit.SECONDS) // 心跳保活
+                .dns(hostname -> {
+                    // 强制使用 IPv4，过滤掉 IPv6 地址
+                    try {
+                        java.net.InetAddress[] addresses = java.net.InetAddress.getAllByName(hostname);
+                        java.util.List<java.net.InetAddress> ipv4Only = new java.util.ArrayList<>();
+                        for (java.net.InetAddress addr : addresses) {
+                            if (addr instanceof java.net.Inet4Address) {
+                                ipv4Only.add(addr);
+                            }
+                        }
+                        return ipv4Only.isEmpty() ? java.util.Arrays.asList(addresses) : ipv4Only;
+                    } catch (Exception e) {
+                        Log.e(TAG, "DNS 解析失败", e);
+                        return okhttp3.Dns.SYSTEM.lookup(hostname);
+                    }
+                })
                 .build();
     }
 

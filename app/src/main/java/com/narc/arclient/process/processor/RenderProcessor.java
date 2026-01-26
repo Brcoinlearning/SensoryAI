@@ -5,10 +5,12 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.RectF;
+import android.util.Log;
 import com.narc.arclient.entity.RenderData;
 
 public class RenderProcessor {
 
+    private static final String TAG = "RenderProcessor";
     private static RenderProcessor instance;
     private Context context;
     private RenderData renderData;
@@ -17,11 +19,14 @@ public class RenderProcessor {
     private Paint paintCursor; // 白色指尖圈
     private Paint paintCursorProgress; // 指尖上的绿色进度条
     private Paint paintCloseProgress; // 张手关闭的红色读条
+    private Paint paintCursorGlow; // 指尖柔和光晕
 
     // UI 画笔
     private Paint paintRedFill; // 苹果红 (实心)
     private Paint paintWhiteRing; // 白色圆环 (空心)
     private Paint paintBtnHover; // 按钮悬停读条 (赛博黄)
+    private Paint paintBtnShadow; // 按钮投影
+    private Paint paintBtnHighlight; // 按钮高光描边
 
     // 平滑滤波变量
     private float smoothX = -1f;
@@ -135,6 +140,12 @@ public class RenderProcessor {
         paintCursor.setStrokeWidth(5f);
         paintCursor.setAntiAlias(true);
 
+        paintCursorGlow = new Paint();
+        paintCursorGlow.setColor(Color.WHITE);
+        paintCursorGlow.setStyle(Paint.Style.FILL);
+        paintCursorGlow.setAlpha(28); // 柔和光晕，不改主色
+        paintCursorGlow.setAntiAlias(true);
+
         // 2. 指尖上的进度条
         paintCursorProgress = new Paint();
         paintCursorProgress.setColor(Color.GREEN);
@@ -156,6 +167,7 @@ public class RenderProcessor {
         paintRedFill.setColor(Color.parseColor("#FF3B30"));
         paintRedFill.setStyle(Paint.Style.FILL);
         paintRedFill.setAntiAlias(true);
+        paintRedFill.setShadowLayer(12f, 0f, 4f, 0x33000000);
 
         // 4. 按钮装饰环 (白色)
         paintWhiteRing = new Paint();
@@ -163,6 +175,7 @@ public class RenderProcessor {
         paintWhiteRing.setStyle(Paint.Style.STROKE);
         paintWhiteRing.setStrokeWidth(5f);
         paintWhiteRing.setAntiAlias(true);
+        paintWhiteRing.setShadowLayer(8f, 0f, 3f, 0x22000000);
 
         // 5. 按钮悬停读条 (赛博黄)
         paintBtnHover = new Paint();
@@ -171,6 +184,21 @@ public class RenderProcessor {
         paintBtnHover.setStrokeWidth(6f);
         paintBtnHover.setStrokeCap(Paint.Cap.ROUND);
         paintBtnHover.setAntiAlias(true);
+
+        // 6. 按钮投影与高光（增强质感，颜色不变）
+        paintBtnShadow = new Paint();
+        paintBtnShadow.setColor(Color.BLACK);
+        paintBtnShadow.setStyle(Paint.Style.FILL);
+        paintBtnShadow.setAlpha(32);
+        paintBtnShadow.setAntiAlias(true);
+        paintBtnShadow.setShadowLayer(14f, 0f, 6f, 0x33000000);
+
+        paintBtnHighlight = new Paint();
+        paintBtnHighlight.setColor(Color.WHITE);
+        paintBtnHighlight.setStyle(Paint.Style.STROKE);
+        paintBtnHighlight.setStrokeWidth(3f);
+        paintBtnHighlight.setAlpha(60);
+        paintBtnHighlight.setAntiAlias(true);
     }
 
     public void draw(Canvas canvas) {
@@ -260,8 +288,12 @@ public class RenderProcessor {
                     hoverProgress = Math.min(1.0f, (float) duration / HOVER_TIME_MS);
 
                     if (duration >= HOVER_TIME_MS) {
-                        if (micListener != null)
+                        Log.d(TAG, "🎤 麦克风按钮触发: " + !isMicOn);
+                        if (micListener != null) {
                             micListener.onMicClick(!isMicOn);
+                        } else {
+                            Log.w(TAG, "⚠️ micListener 为空，无法触发回调");
+                        }
                         lastTriggerTime = System.currentTimeMillis();
                         isHoveringBtn = false;
                         hoverProgress = 0f;
@@ -320,11 +352,14 @@ public class RenderProcessor {
         // B. 麦克风按钮本体
         if (!isMicOn) {
             // === 待机模式 ===
+            canvas.drawCircle(realBtnX, btnY + 2f, btnRadius + 3f, paintBtnShadow); // 投影
             canvas.drawCircle(realBtnX, btnY, btnRadius, paintWhiteRing);
             canvas.drawCircle(realBtnX, btnY, btnRadius - 4f, paintRedFill);
+            canvas.drawCircle(realBtnX, btnY, btnRadius - 7f, paintBtnHighlight);
         } else {
             // === 录音模式 ===
             float largeRingRadius = btnRadius * 1.3f;
+            canvas.drawCircle(realBtnX, btnY + 2f, largeRingRadius + 3f, paintBtnShadow); // 投影
             canvas.drawCircle(realBtnX, btnY, largeRingRadius, paintWhiteRing);
 
             float squareSize = btnRadius * 0.9f;
@@ -333,6 +368,7 @@ public class RenderProcessor {
                     realBtnX - halfSize, btnY - halfSize,
                     realBtnX + halfSize, btnY + halfSize);
             canvas.drawRoundRect(stopRect, squareSize * 0.2f, squareSize * 0.2f, paintRedFill);
+            canvas.drawRoundRect(stopRect, squareSize * 0.2f, squareSize * 0.2f, paintBtnHighlight);
         }
 
         // C. 字幕模拟按钮悬停黄色读条
@@ -355,11 +391,14 @@ public class RenderProcessor {
         paintSubtitleFill.setColor(Color.parseColor("#00C7BE")); // 青色
         paintSubtitleFill.setStyle(Paint.Style.FILL);
         paintSubtitleFill.setAntiAlias(true);
+        paintSubtitleFill.setShadowLayer(10f, 0f, 4f, 0x33000000);
 
         if (!isSubtitleMockOn) {
             // === 待机模式 ===
+            canvas.drawCircle(realSubtitleBtnX, subtitleBtnY + 2f, subtitleBtnRadius + 3f, paintBtnShadow);
             canvas.drawCircle(realSubtitleBtnX, subtitleBtnY, subtitleBtnRadius, paintWhiteRing);
             canvas.drawCircle(realSubtitleBtnX, subtitleBtnY, subtitleBtnRadius - 4f, paintSubtitleFill);
+            canvas.drawCircle(realSubtitleBtnX, subtitleBtnY, subtitleBtnRadius - 7f, paintBtnHighlight);
 
             // 绘制 "CC" 字样
             Paint textPaint = new Paint();
@@ -372,8 +411,10 @@ public class RenderProcessor {
         } else {
             // === 开启模式 ===
             float largeRingRadius = subtitleBtnRadius * 1.3f;
+            canvas.drawCircle(realSubtitleBtnX, subtitleBtnY + 2f, largeRingRadius + 3f, paintBtnShadow);
             canvas.drawCircle(realSubtitleBtnX, subtitleBtnY, largeRingRadius, paintWhiteRing);
             canvas.drawCircle(realSubtitleBtnX, subtitleBtnY, subtitleBtnRadius, paintSubtitleFill);
+            canvas.drawCircle(realSubtitleBtnX, subtitleBtnY, subtitleBtnRadius - 4f, paintBtnHighlight);
 
             // 绘制 "CC" 字样（更大）
             Paint textPaint = new Paint();
@@ -389,6 +430,9 @@ public class RenderProcessor {
         if (renderData != null) {
             float realCursorX = offsetX + clampedLocalX;
             float realCursorY = clampedLocalY;
+            // 柔和光晕（不改变主色）
+            canvas.drawCircle(realCursorX, realCursorY, 40f, paintCursorGlow);
+            // 主体描边
             canvas.drawCircle(realCursorX, realCursorY, 30f, paintCursor);
 
             // 进度颜色：未锁定显示绿色，锁定时改为更亮的灰色提示“冻结”

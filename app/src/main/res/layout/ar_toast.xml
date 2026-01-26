@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- AR眼镜专用 Toast 布局 - 底部浮窗显示 -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_subtitle_premium"
+    android:paddingLeft="@dimen/spacing_md"
+    android:paddingRight="@dimen/spacing_md"
+    android:paddingTop="@dimen/spacing_sm"
+    android:paddingBottom="@dimen/spacing_sm">
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <ImageView
+            android:id="@+id/iv_toast_icon"
+            android:layout_width="@dimen/icon_sm"
+            android:layout_height="@dimen/icon_sm"
+            android:src="@drawable/ic_assistant"
+            android:layout_marginEnd="@dimen/spacing_xs"
+            android:contentDescription="Toast图标"/>
+
+        <TextView
+            android:id="@+id/tv_toast_message"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="提示信息"
+            android:textColor="@color/text_primary"
+            android:textSize="@dimen/text_sm"
+            android:fontFamily="sans-serif-medium"/>
+
+    </LinearLayout>
+
+</FrameLayout>

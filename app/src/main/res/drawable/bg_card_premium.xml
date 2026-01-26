@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 高端卡片背景 - 毛玻璃效果 + 精致边框 -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 背景层 -->
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/surface_elevated"/>
+            <corners android:radius="@dimen/radius_lg"/>
+        </shape>
+    </item>
+    
+    <!-- 微妙的渐变叠加层 -->
+    <item android:top="0dp">
+        <shape android:shape="rectangle">
+            <gradient
+                android:angle="135"
+                android:startColor="#10ffffff"
+                android:centerColor="#08ffffff"
+                android:endColor="#00ffffff"
+                android:type="linear"/>
+            <corners android:radius="@dimen/radius_lg"/>
+        </shape>
+    </item>
+    
+    <!-- 精致边框 -->
+    <item>
+        <shape android:shape="rectangle">
+            <stroke
+                android:width="@dimen/border_thin"
+                android:color="@color/border_emphasis"/>
+            <corners android:radius="@dimen/radius_lg"/>
+        </shape>
+    </item>
+</layer-list>

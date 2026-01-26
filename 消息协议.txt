@@ -1,0 +1,104 @@
+音频流消息协议：
+
+WebSocket连接地址：
+ws://[服务器公网IP]:8000/ws/audio_stream
+或者带session_id：
+ws://[服务器公网IP]:8000/ws/audio_stream?session_id=test-123
+
+客户端 -> 服务器：
+1、音频数据块：
+二进制数据，PCM16原始字节流，无需编码。采样率16000 Hz，单声道，小端序。持续发送音频数据块即可。
+2、终止符：（表示音频传输完成，会触发智能体分析）
+JSON格式的：（session_id可选）
+　　{
+  	"type": "final"
+　　}
+　　或者
+　　{
+　　  "type": "final",
+　　  "session_id": "test-123"
+　　}
+或者纯文本的：
+　　__final__
+3、取消请求：（如果有需要）
+{
+  "type": "cancel"
+}
+
+服务器 -> 客户端：
+1、实时字幕消息：
+{
+  "type": "subtitle",
+  "text": "识别到的文字内容",
+  "is_partial": true,  // true=部分结果（实时更新）, false=最终结果
+  "timestamp": 1234567890.123
+}
+2、智能体分析中间过程消息：
+{
+  "type": "agent_progress",
+  "stage": "perception|understanding|decision|response",
+  "status": "processing|completed",
+  "summary": "处理摘要信息",
+  "data": {
+    // 阶段相关的详细数据
+  }
+}
+3、智能体分析结果消息：
+{
+  "type": "agent_result",
+  "data": {
+    // 完整的智能体响应
+  },
+  "session_id": "..."
+}
+4、错误消息：
+{
+  "type": "error",
+  "error_type": "asr_connection_failed|subtitle_error|agent_error|...",
+  "message": "错误描述信息"
+}
+
+图片消息协议：
+
+连接地址：http://[服务器公网IP]:8000/process_stream
+请求方式：POST
+请求格式：Content-Type: multipart/form-data
+参数：
+　　file: 图片文件（二进制）
+　　input_type: "image"（字符串）
+　　session_id: 可选，会话ID（字符串）
+响应格式：Server-Sent Events (SSE)
+Content-Type: text/event-stream
+
+SSE事件格式说明：
+event: perception
+id: 1
+data: {"status":"processing","summary":"正在处理image输入...","data":{}}
+
+event: perception
+id: 2
+data: {"status":"completed","summary":"感知层处理完成","data":{...}}
+
+event: understanding
+id: 3
+data: {"status":"processing","summary":"正在理解用户意图...","data":{}}
+
+event: understanding
+id: 4
+data: {"status":"completed","summary":"理解层处理完成","data":{...}}
+
+event: decision
+id: 5
+data: {"status":"processing","summary":"正在生成决策...","data":{}}
+
+event: decision
+id: 6
+data: {"status":"completed","summary":"决策层处理完成","data":{...}}
+
+event: response
+id: 7
+data: {"status":"processing","summary":"正在构建最终响应...","data":{}}
+
+event: response
+id: 8
+data: {"status":"completed","summary":"处理完成","data":{完整响应数据}}

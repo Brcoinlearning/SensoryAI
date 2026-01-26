@@ -19,6 +19,7 @@ import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.widget.TextView;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import com.narc.arclient.ui.SubtitleStreamView;
 import android.widget.Toast;
 
@@ -36,6 +37,7 @@ import com.narc.arclient.process.ProcessorManager;
 import com.narc.arclient.process.processor.RecognizeProcessor;
 import com.narc.arclient.process.processor.RenderProcessor;
 import com.narc.arclient.process.processor.SendRemoteProcessor;
+import com.narc.arclient.utils.TTSManager;
 
 public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
 
@@ -44,6 +46,8 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
 
     // UI 组件
     private CustomDrawView customDrawView;
+    private android.widget.ImageView ivStatusIcon;
+    private com.narc.arclient.ui.ArToastView arToastView;
     // 注意：卡片通过 mBindingPair 访问，不用 findViewById
     // Demo: 模拟字幕流（仅调试）
     private Handler subtitleDemoHandler;
@@ -72,9 +76,15 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
     private static final long TAP_TIMEOUT_MS = 500; // 单击最长允许时间
     private static final float TAP_SLOP_PX = 50; // 单击最大允许移动像素
 
+    // TTS 文字转语音管理器
+    private TTSManager ttsManager;
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        // 0. 初始化 TTS 管理器 (用于眼镜发声)
+        ttsManager = TTSManager.getInstance(this);
 
         // 1. 初始化核心处理器
         try {
@@ -128,8 +138,8 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
         float x = event.getX();
         float y = event.getY();
 
-        Log.d(TAG, "👆 onTouchEvent action=" + action + " x=" + String.format("%.1f", x) + " y="
-                + String.format("%.1f", y));
+        //Log.d(TAG, "👆 onTouchEvent action=" + action + " x=" + String.format("%.1f", x) + " y="
+        //        + String.format("%.1f", y));
 
         if (action == MotionEvent.ACTION_DOWN) {
             touchDownTime = System.currentTimeMillis();
@@ -167,18 +177,49 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
                 // 显示智能体思考状态 (例如：正在感知、决策中)
                 runOnUiThread(() -> {
                     startCardSequence(); // 确保卡片可见
-                    // 根据状态显示不同颜色
-                    int color = "completed".equals(status) ? Color.CYAN : Color.YELLOW;
+                    // 根据状态显示不同颜色 - 使用设计系统颜色
+                    int color = "completed".equals(status) 
+                        ? getResources().getColor(R.color.status_success, null)
+                        : getResources().getColor(R.color.primary_teal_light, null);
                     String stageText = getStageText(stage);
-                    setCardText("🤖 " + stageText, summary, color);
+                    setCardText(stageText, summary, color);
                 });
             }
 
             @Override
             public void onAgentResult(String result, String sessionId) {
-                // 显示智能体最终回复
+                // 解析并显示智能体最终回复
                 runOnUiThread(() -> {
-                    setCardText("✅ 智能体回复", result, Color.GREEN);
+                    try {
+                        Log.d(TAG, "📩 收到智能体结果，长度: " + result.length());
+                        Log.d(TAG, "📩 前200字符: " + result.substring(0, Math.min(200, result.length())));
+                        
+                        // 从 JSON 中提取 answer 字段
+                        org.json.JSONObject json = new org.json.JSONObject(result);
+                        
+                        // 尝试从多个可能的路径提取答案
+                        String answer = "";
+                        if (json.has("answer")) {
+                            answer = json.optString("answer", "");
+                        } else if (json.has("results") && json.getJSONObject("results").has("primary")) {
+                            // 可能在 results.primary.original.answer
+                            org.json.JSONObject primary = json.getJSONObject("results").getJSONObject("primary");
+                            if (primary.has("original")) {
+                                answer = primary.getJSONObject("original").optString("answer", "");
+                            }
+                        }
+                        
+                        if (!answer.isEmpty()) {
+                            Log.d(TAG, "✅ 提取到answer: " + answer.substring(0, Math.min(100, answer.length())));
+                            setCardText("智能助手", answer, getResources().getColor(R.color.status_success, null));
+                        } else {
+                            Log.w(TAG, "⚠️ 未找到answer字段，显示原始数据");
+                            setCardText("助手回复", result, getResources().getColor(R.color.status_success, null));
+                        }
+                    } catch (Exception e) {
+                        Log.e(TAG, "❌ 解析智能体回复失败", e);
+                        setCardText("助手回复", result, getResources().getColor(R.color.status_success, null));
+                    }
                     triggerVibration();
                 });
             }
@@ -186,18 +227,18 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
             @Override
             public void onError(String stage, String message) {
                 // 区分错误类型显示
-                String errorMsg = "subtitle".equals(stage) ? "❗ 字幕错误" : "❗ 智能体错误";
-                updateStatus(errorMsg + ": " + message);
+                String errorMsg = "subtitle".equals(stage) ? "字幕错误" : "智能体错误";
+                updateStatus(errorMsg + ": " + message, R.drawable.ic_assistant);
             }
 
             @Override
             public void onConnected() {
-                updateStatus("🔗 已连接");
+                updateStatus("已连接", R.drawable.ic_assistant);
             }
 
             @Override
             public void onDisconnected(String reason) {
-                updateStatus("🔌 已断开: " + reason);
+                updateStatus("已断开: " + reason, R.drawable.ic_assistant);
             }
         });
     }
@@ -235,10 +276,21 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
     private void initViews() {
         Log.d(TAG, "================== 开始初始化 Views ==================");
         Log.d(TAG, "mBindingPair=" + (mBindingPair != null));
+        ivStatusIcon = findViewById(R.id.iv_status_icon);
+        arToastView = findViewById(R.id.ar_toast_view);
         Log.d(TAG, "================== 初始化完成 ==================");
     }
 
     private void checkPermissionsAndStart() {
+        Log.d(TAG, "🔐 检查权限...");
+        
+        // 对于 AR 眼镜开发，权限通常通过 adb 提前授予
+        // 不需要运行时弹窗请求
+        initializeApp();
+    }
+    
+    private void initializeApp() {
+        
         // 简单模拟器判断
         boolean isEmulator = android.os.Build.MODEL.contains("Emulator")
                 || android.os.Build.BRAND.startsWith("generic");
@@ -271,11 +323,17 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
             }, 1000);
         }
     }
+    
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+    }
 
     /**
      * 处理麦克风开关逻辑
      */
     private void handleMicToggle(boolean isOn) {
+        Log.d(TAG, "🎤 handleMicToggle: " + isOn);
         isMicEnabled = isOn;
 
         // 1. 更新渲染器 UI (红圆点 <-> 红方块)
@@ -288,17 +346,57 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
 
         // 3. 开启或停止录音推流
         if (isMicEnabled) {
-            String status = "🎙️ 正在聆听...";
-            updateStatus(status);
-            Toast.makeText(this, status, Toast.LENGTH_SHORT).show();
+            String status = "正在聆听";
+            updateStatus(status, R.drawable.ic_microphone_active);
+            showArToast(status, R.drawable.ic_microphone_active);
+            if (ttsManager != null) {
+                ttsManager.speakWithSound(status);
+            }
+            
+            // 麦克风激活时添加脉冲动画
+            if (ivStatusIcon != null) {
+                android.view.animation.Animation pulse = android.view.animation.AnimationUtils.loadAnimation(
+                    this, R.anim.pulse);
+                ivStatusIcon.startAnimation(pulse);
+            }
+            
             // 启动录音机 (它内部会自动连接 WebSocket)
-            AudioRecorder.getInstance().start(getApplicationContext());
+            Log.d(TAG, "📞 准备调用 AudioRecorder.getInstance().start()");
+            try {
+                AudioRecorder recorder = AudioRecorder.getInstance();
+                Log.d(TAG, "📞 AudioRecorder 实例: " + (recorder != null ? "OK" : "NULL"));
+                if (recorder != null) {
+                    Context ctx = getApplicationContext();
+                    Log.d(TAG, "📞 Context: " + (ctx != null ? "OK" : "NULL"));
+                    recorder.start(ctx);
+                    Log.d(TAG, "📞 start() 调用完成");
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "❌ AudioRecorder.start() 异常", e);
+            }
         } else {
-            String status = "⏹️ 思考中...";
-            updateStatus(status);
-            Toast.makeText(this, status, Toast.LENGTH_SHORT).show();
+            String status = "思考中";
+            updateStatus(status, R.drawable.ic_processing);
+            showArToast(status, R.drawable.ic_processing);
+            if (ttsManager != null) {
+                ttsManager.speakWithSound(status);
+            }
+            
+            // 思考中添加旋转动画
+            if (ivStatusIcon != null) {
+                android.view.animation.Animation rotate = android.view.animation.AnimationUtils.loadAnimation(
+                    this, R.anim.rotate_processing);
+                ivStatusIcon.startAnimation(rotate);
+            }
+            
             // 停止录音 (它内部会发送结束包)
-            AudioRecorder.getInstance().stop();
+            Log.d(TAG, "📞 准备调用 AudioRecorder.getInstance().stop()");
+            AudioRecorder recorder = AudioRecorder.getInstance();
+            Log.d(TAG, "📞 AudioRecorder 实例: " + (recorder != null ? "OK" : "NULL"));
+            if (recorder != null) {
+                recorder.stop();
+                Log.d(TAG, "📞 stop() 调用完成");
+            }
         }
     }
 
@@ -315,14 +413,20 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
         triggerVibration();
 
         if (isOn) {
-            String status = "📝 开启字幕模拟";
-            updateStatus(status);
-            Toast.makeText(this, status, Toast.LENGTH_SHORT).show();
+            String status = "开启字幕模拟";
+            updateStatus(status, R.drawable.ic_assistant);
+            showArToast(status, R.drawable.ic_assistant);
+            if (ttsManager != null) {
+                ttsManager.speakWithSound(status);
+            }
             startSubtitleMockDemo();
         } else {
-            String status = "⏹️ 关闭字幕模拟";
-            updateStatus(status);
-            Toast.makeText(this, status, Toast.LENGTH_SHORT).show();
+            String status = "关闭字幕模拟";
+            updateStatus(status, R.drawable.ic_assistant);
+            showArToast(status, R.drawable.ic_assistant);
+            if (ttsManager != null) {
+                ttsManager.speakWithSound(status);
+            }
             stopSubtitleMockDemo();
         }
     }
@@ -342,6 +446,20 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
 
             //Log.d(TAG, "✅ [合目镜像] 字幕更新到左右两眼: " + text);
         });
+    }
+
+    // 适配 AR 眼镜的独立 Toast：在底部浮窗显示（区别于字幕），通过 mBindingPair 保证双眼同步
+    private void showArToast(String message, int iconRes) {
+        runOnUiThread(() -> mBindingPair.updateView(binding -> {
+            if (binding.arToastView != null) {
+                binding.arToastView.show(message, iconRes);
+            }
+            return null;
+        }));
+    }
+    
+    private void showArToast(String message) {
+        showArToast(message, 0);
     }
 
     // ======= 调试：字幕模拟流 =======
@@ -406,6 +524,12 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
             subtitleDemoHandler.removeCallbacksAndMessages(null);
         }
         subtitleDemoRunning = false;
+
+        // 释放TTS资源
+        if (ttsManager != null) {
+            ttsManager.release();
+        }
+
         super.onDestroy();
     }
 
@@ -506,6 +630,10 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
 
     // 更新底部状态栏文字（使用 mBindingPair 实现合目镜像）
     public void updateStatus(String msg) {
+        updateStatus(msg, null);
+    }
+    
+    public void updateStatus(String msg, Integer iconRes) {
         runOnUiThread(() -> {
             mBindingPair.updateView(binding -> {
                 if (binding.tvStatus != null) {
@@ -513,8 +641,30 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
                 }
                 return null;
             });
+            
+            // 更新状态图标（通过 mBindingPair 确保两眼同步）
+            if (iconRes != null) {
+                mBindingPair.updateView(binding -> {
+                    ImageView icon = binding.ivStatusIcon;
+                    if (icon != null) {
+                        icon.setImageResource(iconRes);
+                        icon.clearAnimation();
+                    }
+                    return null;
+                });
+            }
+            
             Log.d(TAG, "✅ [合目镜像] 状态栏更新到左右两眼: " + msg);
         });
+
+        // 朗读状态信息（仅朗读关键提示，避免过于繁琐）
+        if (ttsManager != null && msg != null && !msg.isEmpty()) {
+            // 只朗读关键信息，过滤掉冗余的状态提示
+            if (msg.contains("失败") || msg.contains("错误") || msg.contains("完成") || 
+                msg.contains("成功") || msg.contains("开始")) {
+                ttsManager.speak(msg);
+            }
+        }
     }
 
     // 初始化全屏绘图 View
@@ -615,14 +765,16 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
                     runOnUiThread(() -> {
                         if (result != null && result.getRecognizeResult() != null) {
                             Log.d(TAG, "📷 [" + source + "] 识别结果: " + result.getRecognizeResult());
-                            setCardText(result.getRecognizeResult(), "识别成功", Color.GREEN);
+                            setCardText("识别结果", result.getRecognizeResult(), 
+                                getResources().getColor(R.color.status_success, null));
                         } else {
                             Log.w(TAG, "📷 [" + source + "] 结果为空");
                         }
                     });
                 } catch (Exception e) {
                     Log.e(TAG, "📷 [" + source + "] 上传失败", e);
-                    runOnUiThread(() -> setCardText("❌ 识别失败", "网络错误，请重试", Color.RED));
+                    runOnUiThread(() -> setCardText("识别失败", "网络错误，请重试", 
+                        getResources().getColor(R.color.status_error, null)));
                 } finally {
                     if (fullHighResBitmap != null && !fullHighResBitmap.isRecycled()) {
                         fullHighResBitmap.recycle();
@@ -729,8 +881,24 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
                 lastCardY = -1f;
                 cardRoot.setVisibility(View.VISIBLE);
                 cardRoot.bringToFront();
+                
+                // 应用优雅的淡入动画
+                android.view.animation.Animation fadeIn = android.view.animation.AnimationUtils.loadAnimation(
+                    this, R.anim.card_fade_in);
+                cardRoot.startAnimation(fadeIn);
+                
                 Log.d(TAG, "✅ [卡片已显示] via mBindingPair");
-                setCardText("🔍 分析中...", "请稍候...", Color.YELLOW);
+                setCardText("分析中", "正在处理...", getResources().getColor(R.color.primary_teal_light, null));
+                
+                // 更新状态图标为处理中
+                updateStatus("分析中", R.drawable.ic_processing);
+                
+                // 处理中图标添加旋转动画
+                if (ivStatusIcon != null) {
+                    android.view.animation.Animation rotate = android.view.animation.AnimationUtils.loadAnimation(
+                        this, R.anim.rotate_processing);
+                    ivStatusIcon.startAnimation(rotate);
+                }
             } else {
                 Log.e(TAG, "❌ 卡片为null，无法显示");
             }
@@ -743,7 +911,26 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
         mBindingPair.updateView(binding -> {
             View cardRoot = binding.includeArCard.getRoot();
             if (cardRoot != null) {
-                cardRoot.setVisibility(View.GONE);
+                // 应用优雅的淡出动画
+                android.view.animation.Animation fadeOut = android.view.animation.AnimationUtils.loadAnimation(
+                    this, R.anim.card_fade_out);
+                fadeOut.setAnimationListener(new android.view.animation.Animation.AnimationListener() {
+                    @Override
+                    public void onAnimationStart(android.view.animation.Animation animation) {}
+                    
+                    @Override
+                    public void onAnimationEnd(android.view.animation.Animation animation) {
+                        cardRoot.setVisibility(View.GONE);
+                        // 卡片关闭成功：播放提示音
+                        if (ttsManager != null) {
+                            ttsManager.speakWithSound("卡片已关闭");
+                        }
+                    }
+                    
+                    @Override
+                    public void onAnimationRepeat(android.view.animation.Animation animation) {}
+                });
+                cardRoot.startAnimation(fadeOut);
                 Log.d(TAG, "✅ [卡片已关闭] via mBindingPair");
             }
             return null;
@@ -754,7 +941,7 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
         openPalmStartTime = 0;
         lastCardX = -1f;
         lastCardY = -1f;
-        updateStatus("卡片已关闭");
+        updateStatus("系统就绪", R.drawable.ic_assistant);
         triggerVibration();
     }
 
@@ -765,10 +952,30 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
                 binding.includeArCard.tvCardTitle.setText(title);
                 binding.includeArCard.tvCardTitle.setTextColor(color);
                 binding.includeArCard.tvCardContent.setText(content);
+                
+                // 根据标题设置图标
+                android.widget.ImageView ivCardIcon = binding.includeArCard.ivCardIcon;
+                if (ivCardIcon != null) {
+                    if (title.contains("分析") || title.contains("处理")) {
+                        ivCardIcon.setImageResource(R.drawable.ic_processing);
+                    } else if (title.contains("成功") || title.contains("完成")) {
+                        ivCardIcon.setImageResource(R.drawable.ic_assistant);
+                    } else {
+                        ivCardIcon.setImageResource(R.drawable.ic_assistant);
+                    }
+                }
+                
                 Log.d(TAG, "✅ [卡片文本已更新] title=" + title);
             }
             return null;
         });
+
+        // 使用TTS朗读卡片内容
+        if (ttsManager != null && content != null && !content.isEmpty()) {
+            // 朗读格式：标题，内容
+            String speakText = title + "。" + content;
+            ttsManager.speak(speakText);
+        }
     }
 
     // 震动反馈

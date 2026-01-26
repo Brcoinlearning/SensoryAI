@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 智能助手图标 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    
+    <path
+        android:strokeWidth="2"
+        android:pathData="M12,2 C6.48,2 2,6.48 2,12 C2,17.52 6.48,22 12,22 C17.52,22 22,17.52 22,12 C22,6.48 17.52,2 12,2 Z"
+        android:strokeColor="@color/primary_teal"
+        android:strokeLineCap="round"
+        android:fillColor="@android:color/transparent"/>
+    
+    <path
+        android:pathData="M8,10 C8.55,10 9,9.55 9,9 C9,8.45 8.55,8 8,8 C7.45,8 7,8.45 7,9 C7,9.55 7.45,10 8,10 Z"
+        android:fillColor="@color/primary_teal"/>
+    
+    <path
+        android:pathData="M16,10 C16.55,10 17,9.55 17,9 C17,8.45 16.55,8 16,8 C15.45,8 15,8.45 15,9 C15,9.55 15.45,10 16,10 Z"
+        android:fillColor="@color/primary_teal"/>
+    
+    <path
+        android:strokeWidth="2"
+        android:pathData="M8,14 C8,14 9,16 12,16 C15,16 16,14 16,14"
+        android:strokeColor="@color/primary_teal"
+        android:strokeLineCap="round"
+        android:fillColor="@android:color/transparent"/>
+</vector>

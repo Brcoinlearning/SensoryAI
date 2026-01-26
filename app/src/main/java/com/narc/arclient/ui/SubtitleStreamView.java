@@ -60,18 +60,23 @@ public class SubtitleStreamView extends FrameLayout {
         textView.setMaxLines(MAX_LINES);
         textView.setEllipsize(android.text.TextUtils.TruncateAt.END);
         textView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
-        textView.setTextColor(0xFFFFFFFF);
+        textView.setTextColor(context.getResources().getColor(R.color.text_primary, null));
         textView.setShadowLayer(2f, 0f, 1f, 0x80000000);
+        textView.setTypeface(android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.NORMAL));
+        textView.setLetterSpacing(0.01f);
+        textView.setLineSpacing(dp(2), 1.0f);
 
         int maxWidthPx = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, MAX_WIDTH_DP,
                 getResources().getDisplayMetrics());
         textView.setMaxWidth(maxWidthPx);
 
-        // Background with soft transparency and rounded corners per AR guideline
-        setBackgroundResource(R.drawable.bg_subtitle_bubble);
+        // Background with premium design per AR guideline
+        setBackgroundResource(R.drawable.bg_subtitle_premium);
 
-        int padH = dp(12);
-        int padV = dp(8);
+        int padH = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 16,
+                getResources().getDisplayMetrics());
+        int padV = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 10,
+                getResources().getDisplayMetrics());
         setPadding(padH, padV, padH, padV);
 
         setAlpha(0f);
@@ -95,11 +100,11 @@ public class SubtitleStreamView extends FrameLayout {
         this.isFinalState = isFinal;
         this.targetText = text;
 
-        // Styling for partial vs final
+        // Styling for partial vs final - using design system colors
         if (isFinal) {
-            textView.setTextColor(0xFFFFFFFF); // higher contrast
+            textView.setTextColor(getContext().getResources().getColor(R.color.text_primary, null));
         } else {
-            textView.setTextColor(0xCCFFFFFF); // softer for partial
+            textView.setTextColor(getContext().getResources().getColor(R.color.text_secondary, null));
         }
 
         // Streaming style: type-in only the delta when extending

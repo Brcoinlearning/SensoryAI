@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 分析/处理中图标 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    
+    <path
+        android:strokeWidth="2"
+        android:pathData="M12,2 L12,6"
+        android:strokeColor="@color/primary_teal_light"
+        android:strokeLineCap="round"
+        android:fillColor="@android:color/transparent"/>
+    
+    <path
+        android:strokeWidth="2"
+        android:pathData="M12,18 L12,22"
+        android:strokeColor="@color/primary_teal_light"
+        android:strokeLineCap="round"
+        android:fillColor="@android:color/transparent"/>
+    
+    <path
+        android:strokeWidth="2"
+        android:pathData="M4.93,4.93 L7.76,7.76"
+        android:strokeColor="@color/primary_teal_light"
+        android:strokeLineCap="round"
+        android:fillColor="@android:color/transparent"/>
+    
+    <path
+        android:strokeWidth="2"
+        android:pathData="M16.24,16.24 L19.07,19.07"
+        android:strokeColor="@color/primary_teal_light"
+        android:strokeLineCap="round"
+        android:fillColor="@android:color/transparent"/>
+    
+    <path
+        android:strokeWidth="2"
+        android:pathData="M2,12 L6,12"
+        android:strokeColor="@color/primary_teal_light"
+        android:strokeLineCap="round"
+        android:fillColor="@android:color/transparent"/>
+    
+    <path
+        android:strokeWidth="2"
+        android:pathData="M18,12 L22,12"
+        android:strokeColor="@color/primary_teal_light"
+        android:strokeLineCap="round"
+        android:fillColor="@android:color/transparent"/>
+    
+    <path
+        android:strokeWidth="2"
+        android:pathData="M4.93,19.07 L7.76,16.24"
+        android:strokeColor="@color/primary_teal_light"
+        android:strokeLineCap="round"
+        android:fillColor="@android:color/transparent"/>
+    
+    <path
+        android:strokeWidth="2"
+        android:pathData="M16.24,7.76 L19.07,4.93"
+        android:strokeColor="@color/primary_teal_light"
+        android:strokeLineCap="round"
+        android:fillColor="@android:color/transparent"/>
+</vector>

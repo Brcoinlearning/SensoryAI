@@ -18,9 +18,9 @@ public class RetrofitClient {
     // 方案 B: 如果你有域名 (推荐，更稳定，且支持 HTTPS)
     // private static final String BASE_URL = "https://api.silversight.com/";
 
-    // 方案 C: 如果你还在开发阶段，电脑在内网，但想让远程的眼镜访问 (内网穿透工具，如 Ngrok/Cpolar)
-    // 这种工具会生成一个临时的公网网址，比如：
-    private static final String BASE_URL = "http://8a2b-123-45-67-89.ngrok-free.app/";
+    // 方案 C: ngrok 内网穿透 (开发阶段)
+    // 使用 HTTPS 安全连接，与后端 ngrok 地址一致
+    private static final String BASE_URL = "https://emotionless-kneadingly-tora.ngrok-free.dev/";
 
     private static RetrofitClient instance;
     private ApiService apiService;
@@ -30,8 +30,8 @@ public class RetrofitClient {
         OkHttpClient client = new OkHttpClient.Builder()
                 .addInterceptor(new HttpLoggingInterceptor().setLevel(HttpLoggingInterceptor.Level.BODY))
                 .connectTimeout(30, TimeUnit.SECONDS) // 连接超时 30s
-                .readTimeout(30, TimeUnit.SECONDS)    // 读取超时 30s
-                .writeTimeout(30, TimeUnit.SECONDS)   // 写入超时 30s
+                .readTimeout(30, TimeUnit.SECONDS) // 读取超时 30s
+                .writeTimeout(30, TimeUnit.SECONDS) // 写入超时 30s
                 .build();
 
         Retrofit retrofit = new Retrofit.Builder()

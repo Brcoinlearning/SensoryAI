@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 
+        雷鸟X2 AR眼镜设计系统
+        遵循瑞士极简美学 + AR显示优化
+        配色方案考虑APL功耗和视觉舒适度
+    -->
+    
+    <!-- Primary Colors - 深邃优雅的蓝绿色系 (优先使用绿色通道降低功耗) -->
+    <color name="primary_deep_teal">#0A1F2E</color>        <!-- 深海蓝 - 背景主色 -->
+    <color name="primary_teal">#00A896</color>             <!-- 青绿 - 主题色 -->
+    <color name="primary_teal_light">#02C39A</color>       <!-- 浅青绿 - 强调色 -->
+    <color name="primary_mint">#00F5D0</color>             <!-- 薄荷绿 - 高亮色 -->
+    
+    <!-- Surface Colors - 表面层次 -->
+    <color name="surface_base">#0D1B2A</color>             <!-- 基础表面 -->
+    <color name="surface_elevated">#1B263B</color>         <!-- 悬浮表面 -->
+    <color name="surface_overlay">#415A77</color>          <!-- 叠加层 -->
+    
+    <!-- Text Colors - 文字层级 -->
+    <color name="text_primary">#E0E1DD</color>             <!-- 主文字 - 高对比度 -->
+    <color name="text_secondary">#A3B2C0</color>           <!-- 次要文字 -->
+    <color name="text_tertiary">#6B7A8F</color>            <!-- 三级文字 -->
+    <color name="text_accent">#00F5D0</color>              <!-- 强调文字 -->
+    
+    <!-- Functional Colors - 功能性颜色 -->
+    <color name="status_success">#05CE78</color>           <!-- 成功状态 (绿色通道优化) -->
+    <color name="status_warning">#F2B134</color>           <!-- 警告状态 -->
+    <color name="status_error">#D62828</color>             <!-- 错误状态 (仅警示时使用) -->
+    <color name="status_info">#00A896</color>              <!-- 信息提示 -->
+    
+    <!-- Transparency Layers - 透明度层 -->
+    <color name="overlay_dim">#B3000000</color>            <!-- 70% 黑色遮罩 -->
+    <color name="overlay_medium">#80000000</color>         <!-- 50% 黑色遮罩 -->
+    <color name="overlay_light">#4D000000</color>          <!-- 30% 黑色遮罩 -->
+    
+    <!-- Border & Divider Colors -->
+    <color name="border_subtle">#1A415A77</color>          <!-- 微妙边框 10% -->
+    <color name="border_default">#33415A77</color>         <!-- 默认边框 20% -->
+    <color name="border_emphasis">#4D415A77</color>        <!-- 强调边框 30% -->
+    <color name="divider_line">#26E0E1DD</color>           <!-- 分割线 15% -->
+    
+    <!-- Dimensions - 遵循AR眼镜设计规范 -->
+    <dimen name="margin_safe_horizontal">30dp</dimen>      <!-- 左右安全边距 -->
+    <dimen name="margin_safe_vertical">20dp</dimen>        <!-- 上下安全边距 -->
+    
+    <dimen name="spacing_xs">4dp</dimen>
+    <dimen name="spacing_sm">8dp</dimen>
+    <dimen name="spacing_md">16dp</dimen>
+    <dimen name="spacing_lg">24dp</dimen>
+    <dimen name="spacing_xl">32dp</dimen>
+    <dimen name="spacing_xxl">48dp</dimen>
+    
+    <!-- Border Radius -->
+    <dimen name="radius_sm">8dp</dimen>
+    <dimen name="radius_md">12dp</dimen>
+    <dimen name="radius_lg">16dp</dimen>
+    <dimen name="radius_xl">24dp</dimen>
+    
+    <!-- Border Width - 最小2px符合AR显示要求 -->
+    <dimen name="border_thin">2dp</dimen>
+    <dimen name="border_medium">3dp</dimen>
+    <dimen name="border_thick">4dp</dimen>
+    
+    <!-- Text Sizes - 遵循最小16sp规范 -->
+    <dimen name="text_xs">16sp</dimen>                     <!-- 最小字号 -->
+    <dimen name="text_sm">18sp</dimen>
+    <dimen name="text_md">20sp</dimen>
+    <dimen name="text_lg">24sp</dimen>
+    <dimen name="text_xl">28sp</dimen>
+    <dimen name="text_xxl">32sp</dimen>
+    
+    <!-- Icon Sizes -->
+    <dimen name="icon_xs">16dp</dimen>
+    <dimen name="icon_sm">20dp</dimen>
+    <dimen name="icon_md">24dp</dimen>
+    <dimen name="icon_lg">32dp</dimen>
+    <dimen name="icon_xl">48dp</dimen>
+    
+    <!-- Elevation for shadows -->
+    <dimen name="elevation_sm">2dp</dimen>
+    <dimen name="elevation_md">4dp</dimen>
+    <dimen name="elevation_lg">8dp</dimen>
+    
+    <!-- Animation Durations -->
+    <integer name="anim_duration_fast">150</integer>
+    <integer name="anim_duration_normal">250</integer>
+    <integer name="anim_duration_slow">350</integer>
+</resources>
