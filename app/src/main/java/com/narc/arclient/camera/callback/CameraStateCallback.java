@@ -16,6 +16,8 @@ import com.narc.arclient.camera.ICameraManager;
 import com.narc.arclient.process.ProcessorManager;
 
 import java.util.Arrays;
+import java.util.ArrayList;
+import java.util.List;
 
 public class CameraStateCallback extends CameraDevice.StateCallback {
 
@@ -25,7 +27,9 @@ public class CameraStateCallback extends CameraDevice.StateCallback {
         iCameraManager.setCameraDevice(camera);
 
         try {
-            CaptureRequest.Builder captureRequestBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+            boolean hasRecorder = iCameraManager.getRecorderSurface() != null;
+            int template = hasRecorder ? CameraDevice.TEMPLATE_RECORD : CameraDevice.TEMPLATE_PREVIEW;
+            CaptureRequest.Builder captureRequestBuilder = camera.createCaptureRequest(template);
 
             // 设置控制模式为自动
             captureRequestBuilder.set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO);
@@ -58,10 +62,18 @@ public class CameraStateCallback extends CameraDevice.StateCallback {
                     CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_ON);
 
             captureRequestBuilder.addTarget(iCameraManager.getImageReader().getSurface());
+            if (hasRecorder) {
+                captureRequestBuilder.addTarget(iCameraManager.getRecorderSurface());
+            }
             iCameraManager.setCaptureRequestBuilder(captureRequestBuilder);
 
+            List<OutputConfiguration> outputs = new ArrayList<>();
+            outputs.add(new OutputConfiguration(iCameraManager.getImageReader().getSurface()));
+            if (hasRecorder) {
+                outputs.add(new OutputConfiguration(iCameraManager.getRecorderSurface()));
+            }
             SessionConfiguration sessionConfiguration = new SessionConfiguration(SESSION_REGULAR,
-                    Arrays.asList(new OutputConfiguration(iCameraManager.getImageReader().getSurface())),
+                    outputs,
                     ProcessorManager.normalExecutor, new CameraCaptureStateCallback());
             camera.createCaptureSession(sessionConfiguration);
         } catch (CameraAccessException e) {

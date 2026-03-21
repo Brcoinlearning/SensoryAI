@@ -6,8 +6,8 @@
     android:background="@drawable/bg_card_premium"
     android:paddingLeft="@dimen/spacing_lg"
     android:paddingRight="@dimen/spacing_lg"
-    android:paddingTop="@dimen/spacing_md"
-    android:paddingBottom="@dimen/spacing_md"
+    android:paddingTop="@dimen/spacing_lg"
+    android:paddingBottom="@dimen/spacing_lg"
     android:visibility="gone"
     android:elevation="@dimen/elevation_md">
 
@@ -28,6 +28,7 @@
                 android:layout_width="@dimen/icon_md"
                 android:layout_height="@dimen/icon_md"
                 android:src="@drawable/ic_assistant"
+                android:tint="@color/text_accent"
                 android:layout_marginEnd="@dimen/spacing_sm"
                 android:contentDescription="助手图标"/>
             
@@ -35,12 +36,9 @@
                 android:id="@+id/tv_card_title"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                style="@style/TextAppearance_AR_Card_Title"
                 android:text="智能分析"
-                android:textColor="@color/text_accent"
-                android:textSize="@dimen/text_lg"
-                android:textStyle="bold"
-                android:fontFamily="sans-serif-medium"
-                android:letterSpacing="0.02"/>
+                />
         </LinearLayout>
 
         <!-- 优雅分割线 -->
@@ -51,17 +49,28 @@
             android:layout_marginBottom="@dimen/spacing_md"
             android:background="@color/divider_line"/>
 
+        <!-- 等待答案动画：凝聚完成后显示，结果返回后隐藏 -->
+        <pl.droidsonroids.gif.GifImageView
+            android:id="@+id/iv_card_waiting"
+            android:layout_width="220dp"
+            android:layout_height="66dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="@dimen/spacing_sm"
+            android:layout_marginBottom="@dimen/spacing_sm"
+            android:src="@raw/waiting_answer"
+            android:scaleType="fitCenter"
+            android:adjustViewBounds="true"
+            android:visibility="gone"/>
+
         <!-- 内容区域 -->
         <TextView
             android:id="@+id/tv_card_content"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            style="@style/TextAppearance_AR_Card_Body"
             android:text="准备就绪"
-            android:textColor="@color/text_primary"
-            android:textSize="@dimen/text_md"
-            android:lineSpacingMultiplier="1.4"
-            android:fontFamily="sans-serif"
-            android:letterSpacing="0.01"/>
+            android:scrollHorizontally="false"
+            />
 
     </LinearLayout>
 

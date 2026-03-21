@@ -111,7 +111,7 @@ public class RecognizeProcessor {
         try {
             // FPS 监控
             if (frameCount % 60 == 0) {
-                Log.d(TAG, "📸 处理源: " + origin.getWidth() + "x" + origin.getHeight());
+                // Log.d(TAG, "📸 处理源: " + origin.getWidth() + "x" + origin.getHeight());
             }
 
             // 1. 缩放到 400px 进行推理
@@ -167,7 +167,7 @@ public class RecognizeProcessor {
         frameCount++;
         long now = System.currentTimeMillis();
         if (now - lastFrameTime >= 1000) {
-            //Log.i(TAG, "🚀 当前 AI 真实帧率: " + frameCount + " FPS");
+            // Log.i(TAG, "🚀 当前 AI 真实帧率: " + frameCount + " FPS");
             frameCount = 0;
             lastFrameTime = now;
         }
@@ -211,6 +211,9 @@ public class RecognizeProcessor {
             // 使用屏幕中心作为默认指尖位置
             return new RenderData(1.0f, 1.0f, 0f, false, false, "None", false, 0f, false);
         }
+
+        // 🔥 检测到手势，通知相机切换到高帧率模式
+        com.narc.arclient.camera.callback.CameraCaptureStateCallback.notifyGestureDetected();
 
         String categoryName = "None";
         boolean isOpenPalm = false;

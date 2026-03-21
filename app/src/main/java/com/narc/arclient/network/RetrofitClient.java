@@ -28,10 +28,17 @@ public class RetrofitClient {
     private RetrofitClient() {
         // 增加超时时间，互联网传输可能比局域网慢
         OkHttpClient client = new OkHttpClient.Builder()
-                .addInterceptor(new HttpLoggingInterceptor().setLevel(HttpLoggingInterceptor.Level.BODY))
-                .connectTimeout(30, TimeUnit.SECONDS) // 连接超时 30s
-                .readTimeout(30, TimeUnit.SECONDS) // 读取超时 30s
-                .writeTimeout(30, TimeUnit.SECONDS) // 写入超时 30s
+                .addInterceptor(chain -> {
+                    // 添加 ngrok 跳过浏览器警告的 header
+                    okhttp3.Request request = chain.request().newBuilder()
+                            .addHeader("ngrok-skip-browser-warning", "true")
+                            .build();
+                    return chain.proceed(request);
+                })
+                .addInterceptor(new HttpLoggingInterceptor().setLevel(HttpLoggingInterceptor.Level.HEADERS))
+                .connectTimeout(30, TimeUnit.SECONDS) // 连接超时 30s（增加至30秒）
+                .readTimeout(120, TimeUnit.SECONDS) // 读取超时 120s（增加至2分钟，适应后端处理时间）
+                .writeTimeout(30, TimeUnit.SECONDS) // 写入超时 30s（增加至30秒）
                 .build();
 
         Retrofit retrofit = new Retrofit.Builder()

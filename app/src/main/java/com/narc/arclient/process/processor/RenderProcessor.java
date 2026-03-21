@@ -1,10 +1,14 @@
 package com.narc.arclient.process.processor;
 
 import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Movie;
 import android.graphics.Paint;
 import android.graphics.RectF;
+import android.os.SystemClock;
 import android.util.Log;
 import com.narc.arclient.entity.RenderData;
 
@@ -56,12 +60,26 @@ public class RenderProcessor {
     private static final long COOLDOWN_MS = 2000; // 冷却时间 2秒
     private long lastTriggerTime = 0; // 上次触发的时间戳
 
-    // 字幕模拟按钮状态
-    private boolean isSubtitleMockOn = false;
-    private boolean isHoveringSubtitleBtn = false;
-    private long subtitleHoverStartTime = 0;
-    private float subtitleHoverProgress = 0f;
-    private long lastSubtitleTriggerTime = 0;
+    // 模式切换按钮状态（原字幕模拟按钮）
+    private int currentModeIndex = 0; // 0=拍照识药, 1=实时字幕, 2=拍照追问
+    private Bitmap[] modeIconBitmaps = new Bitmap[3]; // 0=photo, 1=subtitle, 2=multi
+    private Bitmap micStaticBitmap; // 左上角麦克风静态底图（与 GIF 首帧一致）
+    private Movie micRecordingMovie; // 左上角麦克风录音态 GIF
+    private long micMovieStartTime = 0L;
+    private boolean isHoveringModeBtn = false;
+
+    // 预留：后续可接入拍照识药模式的麦克风出现/消失动画
+    private float micVisibilityProgress = 0f; // 拍照模式为默认模式，启动时麦克风隐藏
+
+    // 模式切换动画状态
+    private static final long ICON_BOUNCE_MS = 300; // 弹跳持续时长
+    private static final long RIPPLE_MS = 400; // 波纹持续时长
+    private long iconScaleStartTime = -1; // -1 表示无动画
+    private long rippleStartTime = -1;
+    private int rippleColor = 0;
+    private long modeHoverStartTime = 0;
+    private float modeHoverProgress = 0f;
+    private long lastModeTriggerTime = 0;
 
     // 回调接口
     public interface OnMicStatusListener {
@@ -74,19 +92,33 @@ public class RenderProcessor {
         this.micListener = listener;
     }
 
-    public interface OnSubtitleMockListener {
-        void onSubtitleMockClick(boolean isOn);
+    public interface OnModeSwitchListener {
+        void onModeSwitch(int modeIndex); // 0=拍照, 1=字幕, 2=多模态
     }
 
-    private OnSubtitleMockListener subtitleMockListener;
+    private OnModeSwitchListener modeSwitchListener;
 
-    public void setOnSubtitleMockListener(OnSubtitleMockListener listener) {
-        this.subtitleMockListener = listener;
+    public void setOnModeSwitchListener(OnModeSwitchListener listener) {
+        this.modeSwitchListener = listener;
     }
 
     private RenderProcessor(Context context) {
         this.context = context;
         initPaints();
+        modeIconBitmaps[0] = BitmapFactory.decodeResource(context.getResources(),
+                com.narc.arclient.R.drawable.ic_mode_photo);
+        modeIconBitmaps[1] = BitmapFactory.decodeResource(context.getResources(),
+                com.narc.arclient.R.drawable.ic_mode_subtitle);
+        modeIconBitmaps[2] = BitmapFactory.decodeResource(context.getResources(),
+                com.narc.arclient.R.drawable.ic_mode_multi);
+        micStaticBitmap = BitmapFactory.decodeResource(context.getResources(),
+                com.narc.arclient.R.drawable.ic_mic_static);
+        try {
+            micRecordingMovie = Movie.decodeStream(context.getResources()
+                    .openRawResource(com.narc.arclient.R.raw.mic_recording));
+        } catch (Exception e) {
+            micRecordingMovie = null;
+        }
     }
 
     public static void init(Context context) {
@@ -106,19 +138,28 @@ public class RenderProcessor {
         this.isMicOn = isOn;
         isHoveringBtn = false;
         hoverProgress = 0f;
+        micMovieStartTime = 0L;
     }
 
-    // 锁定指针（识别期间不再显示绿色进度，不响应悬停触发）
+    public void setMicVisibilityProgress(float progress) {
+        this.micVisibilityProgress = Math.max(0f, Math.min(1f, progress));
+    }
+
+    public float getMicVisibilityProgress() {
+        return micVisibilityProgress;
+    }
+
+    // 锁定指针（识别期间不再显示绿色进度，不响应悂停触发）
     public void setLocked(boolean locked) {
         this.isLocked = locked;
         if (locked) {
-            // 清除悬停状态，避免残留进度
+            // 清除搂停状态，避免残留进度
             isHoveringBtn = false;
             hoverProgress = 0f;
             hoverStartTime = 0;
-            isHoveringSubtitleBtn = false;
-            subtitleHoverProgress = 0f;
-            subtitleHoverStartTime = 0;
+            isHoveringModeBtn = false;
+            modeHoverProgress = 0f;
+            modeHoverStartTime = 0;
         }
     }
 
@@ -126,10 +167,30 @@ public class RenderProcessor {
         this.closeProgress = Math.max(0f, Math.min(1f, progress));
     }
 
-    public void setSubtitleMockState(boolean isOn) {
-        this.isSubtitleMockOn = isOn;
-        isHoveringSubtitleBtn = false;
-        subtitleHoverProgress = 0f;
+    public void setCurrentMode(int modeIndex) {
+        // 记录旧模式的颜色用于波纹
+        int prevColor;
+        switch (this.currentModeIndex) {
+            case 0:
+                prevColor = Color.parseColor("#FF9500");
+                break;
+            case 1:
+                prevColor = Color.parseColor("#00C7BE");
+                break;
+            default:
+                prevColor = Color.parseColor("#AF52DE");
+                break;
+        }
+        this.currentModeIndex = modeIndex;
+        this.closeProgress = 0f;
+        isHoveringModeBtn = false;
+        modeHoverProgress = 0f;
+        modeHoverStartTime = 0;
+        // 启动弹跳动画
+        iconScaleStartTime = SystemClock.uptimeMillis();
+        // 启动波纹（用旧模式颜色）
+        rippleStartTime = SystemClock.uptimeMillis();
+        rippleColor = prevColor;
     }
 
     private void initPaints() {
@@ -148,7 +209,7 @@ public class RenderProcessor {
 
         // 2. 指尖上的进度条
         paintCursorProgress = new Paint();
-        paintCursorProgress.setColor(Color.GREEN);
+        paintCursorProgress.setColor(Color.parseColor("#FF00FF"));
         paintCursorProgress.setStyle(Paint.Style.STROKE);
         paintCursorProgress.setStrokeWidth(8f);
         paintCursorProgress.setStrokeCap(Paint.Cap.ROUND);
@@ -273,13 +334,16 @@ public class RenderProcessor {
             clampedLocalY = Math.max(30f, Math.min(h - 30f, smoothY));
         }
 
+        float micVisible = Math.max(0f, Math.min(1f, micVisibilityProgress));
+        boolean micInteractable = micVisible > 0.05f;
+
         // ================= 3. 碰撞检测 (含防误触冷却) =================
         if (!isLocked && isLeftEye && renderData != null) {
             // 麦克风按钮检测
             float dist = (float) Math.hypot(clampedLocalX - btnLocalX, clampedLocalY - btnY);
             boolean inCooldown = (System.currentTimeMillis() - lastTriggerTime) < COOLDOWN_MS;
 
-            if (dist < (btnRadius + 30f + 15f) && !inCooldown) {
+            if (micInteractable && dist < (btnRadius + 30f + 15f) && !inCooldown) {
                 if (!isHoveringBtn) {
                     isHoveringBtn = true;
                     hoverStartTime = System.currentTimeMillis();
@@ -305,129 +369,184 @@ public class RenderProcessor {
                 hoverProgress = 0f;
             }
 
-            // 字幕模拟按钮检测
-            float subtitleDist = (float) Math.hypot(clampedLocalX - subtitleBtnLocalX, clampedLocalY - subtitleBtnY);
-            boolean subtitleInCooldown = (System.currentTimeMillis() - lastSubtitleTriggerTime) < COOLDOWN_MS;
+            // 模式切换按钮检测（原字幕模拟按钮位置）
+            float modeDist = (float) Math.hypot(clampedLocalX - subtitleBtnLocalX, clampedLocalY - subtitleBtnY);
+            boolean modeInCooldown = (System.currentTimeMillis() - lastModeTriggerTime) < COOLDOWN_MS;
 
-            if (subtitleDist < (subtitleBtnRadius + 30f + 15f) && !subtitleInCooldown) {
-                if (!isHoveringSubtitleBtn) {
-                    isHoveringSubtitleBtn = true;
-                    subtitleHoverStartTime = System.currentTimeMillis();
+            if (modeDist < (subtitleBtnRadius + 30f + 15f) && !modeInCooldown) {
+                if (!isHoveringModeBtn) {
+                    isHoveringModeBtn = true;
+                    modeHoverStartTime = System.currentTimeMillis();
                 } else {
-                    long duration = System.currentTimeMillis() - subtitleHoverStartTime;
-                    subtitleHoverProgress = Math.min(1.0f, (float) duration / HOVER_TIME_MS);
+                    long duration = System.currentTimeMillis() - modeHoverStartTime;
+                    modeHoverProgress = Math.min(1.0f, (float) duration / HOVER_TIME_MS);
 
                     if (duration >= HOVER_TIME_MS) {
-                        if (subtitleMockListener != null)
-                            subtitleMockListener.onSubtitleMockClick(!isSubtitleMockOn);
-                        lastSubtitleTriggerTime = System.currentTimeMillis();
-                        isHoveringSubtitleBtn = false;
-                        subtitleHoverProgress = 0f;
-                        subtitleHoverStartTime = 0;
+                        // 切换到下一个模式
+                        int nextMode = (currentModeIndex + 1) % 3;
+                        if (modeSwitchListener != null) {
+                            modeSwitchListener.onModeSwitch(nextMode);
+                        }
+                        lastModeTriggerTime = System.currentTimeMillis();
+                        isHoveringModeBtn = false;
+                        modeHoverProgress = 0f;
+                        modeHoverStartTime = 0;
                     }
                 }
             } else {
-                isHoveringSubtitleBtn = false;
-                subtitleHoverProgress = 0f;
+                isHoveringModeBtn = false;
+                modeHoverProgress = 0f;
             }
         }
 
         // ================= 4. UI 绘制 =================
 
         // A. 麦克风按钮悬停黄色读条
-        if (!isLocked && isHoveringBtn && hoverProgress > 0) {
+        if (micInteractable && !isLocked && isHoveringBtn && hoverProgress > 0) {
             float ringGap = 12f;
-            float progressRadius;
-            if (!isMicOn) {
-                progressRadius = btnRadius + ringGap;
-            } else {
-                progressRadius = (btnRadius * 1.3f) + ringGap;
-            }
+            float progressRadius = btnRadius + ringGap;
             RectF progressRect = new RectF(
                     realBtnX - progressRadius, btnY - progressRadius,
                     realBtnX + progressRadius, btnY + progressRadius);
+            int hoverAlpha = (int) (255 * micVisible);
+            int oldHoverAlpha = paintBtnHover.getAlpha();
+            paintBtnHover.setAlpha(hoverAlpha);
             canvas.drawArc(progressRect, -90, hoverProgress * 360, false, paintBtnHover);
+            paintBtnHover.setAlpha(oldHoverAlpha);
         }
 
         // B. 麦克风按钮本体
-        if (!isMicOn) {
-            // === 待机模式 ===
-            canvas.drawCircle(realBtnX, btnY + 2f, btnRadius + 3f, paintBtnShadow); // 投影
-            canvas.drawCircle(realBtnX, btnY, btnRadius, paintWhiteRing);
-            canvas.drawCircle(realBtnX, btnY, btnRadius - 4f, paintRedFill);
-            canvas.drawCircle(realBtnX, btnY, btnRadius - 7f, paintBtnHighlight);
-        } else {
-            // === 录音模式 ===
-            float largeRingRadius = btnRadius * 1.3f;
-            canvas.drawCircle(realBtnX, btnY + 2f, largeRingRadius + 3f, paintBtnShadow); // 投影
-            canvas.drawCircle(realBtnX, btnY, largeRingRadius, paintWhiteRing);
+        if (micVisible > 0.01f) {
+            float contentSize = btnRadius * 2.05f;
+            RectF micDst = new RectF(
+                    realBtnX - contentSize / 2f,
+                    btnY - contentSize / 2f,
+                    realBtnX + contentSize / 2f,
+                    btnY + contentSize / 2f);
 
-            float squareSize = btnRadius * 0.9f;
-            float halfSize = squareSize / 2f;
-            RectF stopRect = new RectF(
-                    realBtnX - halfSize, btnY - halfSize,
-                    realBtnX + halfSize, btnY + halfSize);
-            canvas.drawRoundRect(stopRect, squareSize * 0.2f, squareSize * 0.2f, paintRedFill);
-            canvas.drawRoundRect(stopRect, squareSize * 0.2f, squareSize * 0.2f, paintBtnHighlight);
+            if (isMicOn && micRecordingMovie != null) {
+                long now = SystemClock.uptimeMillis();
+                if (micMovieStartTime == 0L) {
+                    micMovieStartTime = now;
+                }
+
+                int duration = micRecordingMovie.duration();
+                if (duration <= 0) {
+                    duration = 1000;
+                }
+                int relTime = (int) ((now - micMovieStartTime) % duration);
+                micRecordingMovie.setTime(relTime);
+
+                int layer = canvas.saveLayerAlpha(micDst.left, micDst.top, micDst.right, micDst.bottom,
+                        (int) (255 * micVisible));
+                canvas.save();
+                float scaleX = contentSize / Math.max(1, micRecordingMovie.width());
+                float scaleY = contentSize / Math.max(1, micRecordingMovie.height());
+                canvas.translate(micDst.left, micDst.top);
+                canvas.scale(scaleX, scaleY);
+                micRecordingMovie.draw(canvas, 0f, 0f);
+                canvas.restore();
+                canvas.restoreToCount(layer);
+            } else if (micStaticBitmap != null) {
+                Paint micPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+                micPaint.setFilterBitmap(true);
+                micPaint.setAlpha((int) (255 * micVisible));
+                canvas.drawBitmap(micStaticBitmap, null, micDst, micPaint);
+            } else {
+                paintRedFill.setAlpha((int) (255 * micVisible));
+                canvas.drawCircle(realBtnX, btnY, btnRadius - 4f, paintRedFill);
+                paintRedFill.setAlpha(255);
+            }
         }
 
-        // C. 字幕模拟按钮悬停黄色读条
-        if (!isLocked && isHoveringSubtitleBtn && subtitleHoverProgress > 0) {
+        // C. 模式切换按钮搂停黄色读条
+        if (!isLocked && isHoveringModeBtn && modeHoverProgress > 0) {
             float ringGap = 12f;
-            float progressRadius;
-            if (!isSubtitleMockOn) {
-                progressRadius = subtitleBtnRadius + ringGap;
-            } else {
-                progressRadius = (subtitleBtnRadius * 1.3f) + ringGap;
-            }
+            float progressRadius = subtitleBtnRadius + ringGap;
             RectF progressRect = new RectF(
                     realSubtitleBtnX - progressRadius, subtitleBtnY - progressRadius,
                     realSubtitleBtnX + progressRadius, subtitleBtnY + progressRadius);
-            canvas.drawArc(progressRect, -90, subtitleHoverProgress * 360, false, paintBtnHover);
+            canvas.drawArc(progressRect, -90, modeHoverProgress * 360, false, paintBtnHover);
         }
 
-        // D. 字幕模拟按钮本体
-        Paint paintSubtitleFill = new Paint();
-        paintSubtitleFill.setColor(Color.parseColor("#00C7BE")); // 青色
-        paintSubtitleFill.setStyle(Paint.Style.FILL);
-        paintSubtitleFill.setAntiAlias(true);
-        paintSubtitleFill.setShadowLayer(10f, 0f, 4f, 0x33000000);
+        // D. 模弋切换按钮本体（根据当前模式显示不同图标）
+        // D. 模式切换按钮本体（根据当前模式显示不同图标）
+        // 根据模式设置颜色
+        Paint paintModeFill = new Paint();
+        paintModeFill.setStyle(Paint.Style.FILL);
+        paintModeFill.setAntiAlias(true);
+        paintModeFill.setShadowLayer(10f, 0f, 4f, 0x33000000);
 
-        if (!isSubtitleMockOn) {
-            // === 待机模式 ===
-            canvas.drawCircle(realSubtitleBtnX, subtitleBtnY + 2f, subtitleBtnRadius + 3f, paintBtnShadow);
-            canvas.drawCircle(realSubtitleBtnX, subtitleBtnY, subtitleBtnRadius, paintWhiteRing);
-            canvas.drawCircle(realSubtitleBtnX, subtitleBtnY, subtitleBtnRadius - 4f, paintSubtitleFill);
-            canvas.drawCircle(realSubtitleBtnX, subtitleBtnY, subtitleBtnRadius - 7f, paintBtnHighlight);
+        switch (currentModeIndex) {
+            case 0: // 拍照识药
+                paintModeFill.setColor(Color.parseColor("#FF9500")); // 橙色
+                break;
+            case 1: // 实时字幕
+                paintModeFill.setColor(Color.parseColor("#00C7BE")); // 青色
+                break;
+            case 2: // 拍照追问
+                paintModeFill.setColor(Color.parseColor("#AF52DE")); // 紫色
+                break;
+        }
 
-            // 绘制 "CC" 字样
-            Paint textPaint = new Paint();
-            textPaint.setColor(Color.WHITE);
-            textPaint.setTextSize(28f);
-            textPaint.setTextAlign(Paint.Align.CENTER);
-            textPaint.setAntiAlias(true);
-            textPaint.setFakeBoldText(true);
-            canvas.drawText("CC", realSubtitleBtnX, subtitleBtnY + 10f, textPaint);
-        } else {
-            // === 开启模式 ===
-            float largeRingRadius = subtitleBtnRadius * 1.3f;
-            canvas.drawCircle(realSubtitleBtnX, subtitleBtnY + 2f, largeRingRadius + 3f, paintBtnShadow);
-            canvas.drawCircle(realSubtitleBtnX, subtitleBtnY, largeRingRadius, paintWhiteRing);
-            canvas.drawCircle(realSubtitleBtnX, subtitleBtnY, subtitleBtnRadius, paintSubtitleFill);
-            canvas.drawCircle(realSubtitleBtnX, subtitleBtnY, subtitleBtnRadius - 4f, paintBtnHighlight);
+        // C. 波纹动画（在按钮底层先画，避免遮住按钮本体）
+        if (rippleStartTime >= 0) {
+            float rippleT = Math.min(1f, (float) (SystemClock.uptimeMillis() - rippleStartTime) / RIPPLE_MS);
+            if (rippleT < 1f) {
+                // 半径从 btnRadius 扩散到 btnRadius*2.6
+                float rippleRadius = subtitleBtnRadius + (subtitleBtnRadius * 1.6f) * rippleT;
+                // alpha 从 200 衰减到 0
+                int rippleAlpha = (int) (200 * (1f - rippleT));
+                Paint ripplePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+                ripplePaint.setStyle(Paint.Style.STROKE);
+                ripplePaint.setStrokeWidth(4f);
+                ripplePaint.setColor(rippleColor);
+                ripplePaint.setAlpha(rippleAlpha);
+                canvas.drawCircle(realSubtitleBtnX, subtitleBtnY, rippleRadius, ripplePaint);
+            } else {
+                rippleStartTime = -1;
+            }
+        }
 
-            // 绘制 "CC" 字样（更大）
-            Paint textPaint = new Paint();
-            textPaint.setColor(Color.WHITE);
-            textPaint.setTextSize(32f);
-            textPaint.setTextAlign(Paint.Align.CENTER);
-            textPaint.setAntiAlias(true);
-            textPaint.setFakeBoldText(true);
-            canvas.drawText("CC", realSubtitleBtnX, subtitleBtnY + 11f, textPaint);
+        // 绘制按钮
+        canvas.drawCircle(realSubtitleBtnX, subtitleBtnY + 2f, subtitleBtnRadius + 3f, paintBtnShadow);
+        canvas.drawCircle(realSubtitleBtnX, subtitleBtnY, subtitleBtnRadius, paintWhiteRing);
+        canvas.drawCircle(realSubtitleBtnX, subtitleBtnY, subtitleBtnRadius - 4f, paintModeFill);
+        canvas.drawCircle(realSubtitleBtnX, subtitleBtnY, subtitleBtnRadius - 7f, paintBtnHighlight);
+
+        // 绘制模式图标（A. 弹跳缩放动画）
+        Bitmap icon = modeIconBitmaps[currentModeIndex];
+        if (icon != null) {
+            // 计算弹跳缩放系数：0→1.18→1.0（overshoot spring）
+            float scale = 1f;
+            if (iconScaleStartTime >= 0) {
+                float t = Math.min(1f, (float) (SystemClock.uptimeMillis() - iconScaleStartTime) / ICON_BOUNCE_MS);
+                if (t < 1f) {
+                    // 简单 overshoot：sin 曲线，峰值在 t≈0.5 时达到 1.18
+                    scale = 1f + 0.18f * (float) Math.sin(t * Math.PI);
+                } else {
+                    scale = 1f;
+                    iconScaleStartTime = -1;
+                }
+            }
+            float iconSize = (subtitleBtnRadius - 8f) * 2f * scale;
+            float iconLeft = realSubtitleBtnX - iconSize / 2f;
+            float iconTop = subtitleBtnY - iconSize / 2f;
+            RectF dst = new RectF(iconLeft, iconTop, iconLeft + iconSize, iconTop + iconSize);
+            Paint iconPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            iconPaint.setFilterBitmap(true);
+            canvas.drawBitmap(icon, null, dst, iconPaint);
         }
 
         // E. 指尖光标
         if (renderData != null) {
+            // 未识别手势时 RecognizeProcessor 会返回默认兜底坐标 (1.0, 1.0)。
+            // 保持默认位置逻辑不变，但该状态下不绘制指尖圈。
+            boolean isDefaultFallbackTip = renderData.getTipX() >= 0.999f && renderData.getTipY() >= 0.999f;
+            if (isDefaultFallbackTip) {
+                return;
+            }
+
             float realCursorX = offsetX + clampedLocalX;
             float realCursorY = clampedLocalY;
             // 柔和光晕（不改变主色）
@@ -435,15 +554,15 @@ public class RenderProcessor {
             // 主体描边
             canvas.drawCircle(realCursorX, realCursorY, 30f, paintCursor);
 
-            // 进度颜色：未锁定显示绿色，锁定时改为更亮的灰色提示“冻结”
+            // 进度颜色：未锁定显示洋红，锁定时改为更亮的灰色提示“冻结”
             if (isLocked) {
                 paintCursorProgress.setColor(Color.parseColor("#AAAAAA"));
             } else {
-                paintCursorProgress.setColor(Color.GREEN);
+                paintCursorProgress.setColor(Color.parseColor("#FF00FF"));
             }
 
             // 物体识别进度条 (仅在不悬停任何按钮且未锁定时显示)
-            if (!isLocked && renderData.getProgress() > 0 && !isHoveringBtn && !isHoveringSubtitleBtn) {
+            if (!isLocked && renderData.getProgress() > 0 && !isHoveringBtn && !isHoveringModeBtn) {
                 RectF rect = new RectF(realCursorX - 30, realCursorY - 30, realCursorX + 30, realCursorY + 30);
                 canvas.drawArc(rect, -90, renderData.getProgress() * 360, false, paintCursorProgress);
             }

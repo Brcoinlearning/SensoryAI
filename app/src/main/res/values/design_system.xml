@@ -10,7 +10,7 @@
     <color name="primary_deep_teal">#0A1F2E</color>        <!-- 深海蓝 - 背景主色 -->
     <color name="primary_teal">#00A896</color>             <!-- 青绿 - 主题色 -->
     <color name="primary_teal_light">#02C39A</color>       <!-- 浅青绿 - 强调色 -->
-    <color name="primary_mint">#00F5D0</color>             <!-- 薄荷绿 - 高亮色 -->
+    <color name="primary_mint">#39E6C7</color>             <!-- 薄荷绿 - 高亮色（降刺激） -->
     
     <!-- Surface Colors - 表面层次 -->
     <color name="surface_base">#0D1B2A</color>             <!-- 基础表面 -->
@@ -18,16 +18,22 @@
     <color name="surface_overlay">#415A77</color>          <!-- 叠加层 -->
     
     <!-- Text Colors - 文字层级 -->
-    <color name="text_primary">#E0E1DD</color>             <!-- 主文字 - 高对比度 -->
-    <color name="text_secondary">#A3B2C0</color>           <!-- 次要文字 -->
-    <color name="text_tertiary">#6B7A8F</color>            <!-- 三级文字 -->
+    <color name="text_primary">#F1F4EF</color>             <!-- 主文字 - 提升复杂背景可读性 -->
+    <color name="text_secondary">#8FA1B3</color>           <!-- 次要文字 - 与主文字拉开层级 -->
+    <color name="text_tertiary">#5F6E82</color>            <!-- 三级文字 -->
     <color name="text_accent">#00F5D0</color>              <!-- 强调文字 -->
     
     <!-- Functional Colors - 功能性颜色 -->
     <color name="status_success">#05CE78</color>           <!-- 成功状态 (绿色通道优化) -->
-    <color name="status_warning">#F2B134</color>           <!-- 警告状态 -->
+    <color name="status_warning">#00B894</color>           <!-- 警告状态（默认冷警示） -->
+    <color name="status_warning_warm">#F2B134</color>      <!-- 轻提醒/短时提示（暖色） -->
+    <color name="status_warning_cool">#00B894</color>      <!-- 青绿告警（阶段1B收口） -->
     <color name="status_error">#D62828</color>             <!-- 错误状态 (仅警示时使用) -->
     <color name="status_info">#00A896</color>              <!-- 信息提示 -->
+
+    <!-- Interaction Colors - 交互态语义 -->
+    <color name="interaction_pressed_teal">#00897B</color> <!-- 按下态（更深青绿） -->
+    <color name="interaction_disabled">#6B7A8F</color>     <!-- 禁用态 -->
     
     <!-- Transparency Layers - 透明度层 -->
     <color name="overlay_dim">#B3000000</color>            <!-- 70% 黑色遮罩 -->
@@ -38,7 +44,15 @@
     <color name="border_subtle">#1A415A77</color>          <!-- 微妙边框 10% -->
     <color name="border_default">#33415A77</color>         <!-- 默认边框 20% -->
     <color name="border_emphasis">#4D415A77</color>        <!-- 强调边框 30% -->
-    <color name="divider_line">#26E0E1DD</color>           <!-- 分割线 15% -->
+    <color name="border_luminous">#1839E6C7</color>       <!-- 卡片微高光边框 -->
+    <color name="divider_line">#2EE0E1DD</color>           <!-- 分割线 18% -->
+
+    <!-- Gradient overlay tokens (stage 1B hardcode cleanup) -->
+    <color name="gradient_card_overlay_start">#10415A77</color>
+    <color name="gradient_card_overlay_center">#08415A77</color>
+    <color name="gradient_card_overlay_end">#00415A77</color>
+    <color name="gradient_subtitle_highlight_start">#18415A77</color>
+    <color name="gradient_subtitle_highlight_end">#00415A77</color>
     
     <!-- Dimensions - 遵循AR眼镜设计规范 -->
     <dimen name="margin_safe_horizontal">30dp</dimen>      <!-- 左右安全边距 -->
@@ -86,4 +100,21 @@
     <integer name="anim_duration_fast">150</integer>
     <integer name="anim_duration_normal">250</integer>
     <integer name="anim_duration_slow">350</integer>
+
+    <!-- Text behavior tokens -->
+    <integer name="subtitle_max_lines">3</integer>
+    <integer name="status_max_lines">1</integer>
+    <integer name="toast_max_lines">2</integer>
+    <integer name="card_title_max_lines">1</integer>
+    <integer name="card_body_max_lines">20</integer>
+
+    <!-- Main screen vertical offsets (keep occlusion low & avoid bottom interaction zone) -->
+    <dimen name="offset_subtitle_bottom">56dp</dimen>
+    <dimen name="offset_toast_bottom">120dp</dimen>
+
+    <!-- Text containers max widths (reduce occlusion in limited FoV) -->
+    <dimen name="max_width_status">320dp</dimen>
+    <dimen name="max_width_subtitle">300dp</dimen>
+    <dimen name="max_width_toast">300dp</dimen>
+    <dimen name="max_width_card">320dp</dimen>
 </resources>

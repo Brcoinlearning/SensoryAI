@@ -14,10 +14,20 @@
         <shape android:shape="rectangle">
             <gradient
                 android:angle="135"
-                android:startColor="#10ffffff"
-                android:centerColor="#08ffffff"
-                android:endColor="#00ffffff"
+                android:startColor="@color/gradient_card_overlay_start"
+                android:centerColor="@color/gradient_card_overlay_center"
+                android:endColor="@color/gradient_card_overlay_end"
                 android:type="linear"/>
+            <corners android:radius="@dimen/radius_lg"/>
+        </shape>
+    </item>
+
+    <!-- 微高光描边：增强卡片悬浮感，但不引入明显光晕 -->
+    <item android:left="1dp" android:top="1dp" android:right="1dp" android:bottom="1dp">
+        <shape android:shape="rectangle">
+            <stroke
+                android:width="1dp"
+                android:color="@color/border_luminous"/>
             <corners android:radius="@dimen/radius_lg"/>
         </shape>
     </item>

@@ -30,6 +30,15 @@ public class RecognizeTask {
         this.originBitmap = originBitmap;
     }
 
+    /**
+     * 创建带有手指坐标的 RecognizeTask (用于智能裁剪)
+     */
+    public RecognizeTask(Bitmap originBitmap, float tipX, float tipY) {
+        this.originBitmap = originBitmap;
+        this.tipX = tipX;
+        this.tipY = tipY;
+    }
+
     public Bitmap getOriginBitmap() {
         return originBitmap;
     }
@@ -46,16 +55,23 @@ public class RecognizeTask {
         this.recognizeResult = recognizeResult;
     }
 
+    /**
+     * 获取手指坐标 (归一化坐标，范围 0-1)
+     */
     public float getTipX() {
         return tipX;
     }
 
-    public void setTipX(float tipX) {
-        this.tipX = tipX;
-    }
-
     public float getTipY() {
         return tipY;
+    }
+
+    public boolean hasTipCoordinate() {
+        return tipX >= 0 && tipY >= 0;
+    }
+
+    public void setTipX(float tipX) {
+        this.tipX = tipX;
     }
 
     public void setTipY(float tipY) {

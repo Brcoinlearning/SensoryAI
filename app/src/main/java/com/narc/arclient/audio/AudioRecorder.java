@@ -31,6 +31,7 @@ public class AudioRecorder {
     private long audioBytesWritten = 0;
     private String audioFilePath = null;
     private Context appContext;
+    private long recordStartTime = 0; // 录音开始时间
 
     private static AudioRecorder instance;
 
@@ -43,8 +44,11 @@ public class AudioRecorder {
 
     @SuppressLint("MissingPermission") // 权限在 Activity 中检查
     public void start(Context context) {
-        Log.d(TAG, "⏺️ start() 被调用，isRecording=" + isRecording + ", audioRecord=" + (audioRecord != null ? "not null" : "null"));
-        
+        recordStartTime = System.currentTimeMillis(); // 记录录音开始时间
+        Log.d(TAG, "⏺️ start() 被调用，isRecording=" + isRecording + ", audioRecord="
+                + (audioRecord != null ? "not null" : "null"));
+        Log.i(TAG, "🎤 [录音开始] 时间戳: " + recordStartTime);
+
         if (isRecording) {
             Log.w(TAG, "已经在录音中，忽略重复调用");
             return;
@@ -66,26 +70,28 @@ public class AudioRecorder {
             return;
         }
 
-        // 1. 连接 WebSocket
-        WebSocketManager.getInstance().connect();
+        // 1. WebSocket 连接由 MainActivity 按当前模式统一建立，
+        // 这里不要重复 connect()，否则会把多模态场景下的 section_id 覆盖掉。
 
-        // 1.5 创建本地音频文件 (WAV) - 保存到公共 Music 目录
-        try {
-            // 使用公共 Music 目录，Device Explorer 可以访问
-            File musicDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_MUSIC);
-            File dir = new File(musicDir, "ARClient_Audio");
-            if (!dir.exists()) {
-                dir.mkdirs();
-            }
-            String ts = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
-            File audioFile = new File(dir, "audio_" + ts + ".wav");
-            audioFilePath = audioFile.getAbsolutePath();
-            audioOut = new FileOutputStream(audioFile);
-            writeWavHeader(audioOut, SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT);
-            Log.d(TAG, "本地录音文件: " + audioFilePath);
-        } catch (Exception e) {
-            Log.e(TAG, "创建本地音频文件失败", e);
-        }
+        // 1.5 创建本地音频文件 (WAV) - 暂时注释本地保存
+        // try {
+        // // 使用公共 Music 目录，Device Explorer 可以访问
+        // File musicDir =
+        // android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_MUSIC);
+        // File dir = new File(musicDir, "ARClient_Audio");
+        // if (!dir.exists()) {
+        // dir.mkdirs();
+        // }
+        // String ts = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new
+        // Date());
+        // File audioFile = new File(dir, "audio_" + ts + ".wav");
+        // audioFilePath = audioFile.getAbsolutePath();
+        // audioOut = new FileOutputStream(audioFile);
+        // writeWavHeader(audioOut, SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT);
+        // Log.d(TAG, "本地录音文件: " + audioFilePath);
+        // } catch (Exception e) {
+        // Log.e(TAG, "创建本地音频文件失败", e);
+        // }
 
         audioRecord.startRecording();
         isRecording = true;
@@ -99,15 +105,15 @@ public class AudioRecorder {
                     // 发送给服务器
                     WebSocketManager.getInstance().sendAudio(buffer, readResult);
 
-                    // 保存到本地文件
-                    if (audioOut != null) {
-                        try {
-                            audioOut.write(buffer, 0, readResult);
-                            audioBytesWritten += readResult;
-                        } catch (IOException ioe) {
-                            Log.e(TAG, "本地录音写入失败", ioe);
-                        }
-                    }
+                    // 保存到本地文件（暂时注释）
+                    // if (audioOut != null) {
+                    // try {
+                    // audioOut.write(buffer, 0, readResult);
+                    // audioBytesWritten += readResult;
+                    // } catch (IOException ioe) {
+                    // Log.e(TAG, "本地录音写入失败", ioe);
+                    // }
+                    // }
                 }
             }
         });
@@ -116,8 +122,12 @@ public class AudioRecorder {
     }
 
     public void stop() {
+        long stopTime = System.currentTimeMillis();
+        long duration = recordStartTime > 0 ? (stopTime - recordStartTime) : 0;
         Log.d(TAG, "⏹️ stop() 被调用");
-        
+        Log.i(TAG, "🎤 [录音结束] 时间戳: " + stopTime + ", 录音时长: " + duration + "ms ("
+                + String.format(Locale.US, "%.1f", duration / 1000.0) + "秒)");
+
         if (!isRecording) {
             Log.w(TAG, "当前未在录音，忽略停止调用");
             return;
@@ -138,20 +148,21 @@ public class AudioRecorder {
             Log.e(TAG, "停止录音异常", e);
         }
 
-        // 3. 写回 WAV 头并关闭文件
-        if (audioOut != null) {
-            try {
-                updateWavHeader(audioFilePath, audioBytesWritten, SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT);
-                audioOut.close();
-                Log.d(TAG, "本地录音完成，文件: " + audioFilePath);
-            } catch (Exception e) {
-                Log.e(TAG, "关闭本地音频文件失败", e);
-            } finally {
-                audioOut = null;
-                audioBytesWritten = 0;
-                audioFilePath = null;
-            }
-        }
+        // 3. 写回 WAV 头并关闭文件（暂时注释本地保存）
+        // if (audioOut != null) {
+        // try {
+        // updateWavHeader(audioFilePath, audioBytesWritten, SAMPLE_RATE,
+        // CHANNEL_CONFIG, AUDIO_FORMAT);
+        // audioOut.close();
+        // Log.d(TAG, "本地录音完成，文件: " + audioFilePath);
+        // } catch (Exception e) {
+        // Log.e(TAG, "关闭本地音频文件失败", e);
+        // } finally {
+        // audioOut = null;
+        // audioBytesWritten = 0;
+        // audioFilePath = null;
+        // }
+        // }
 
         // 4. 发送结束信号
         WebSocketManager.getInstance().sendFinish();

@@ -1,13 +1,11 @@
 package com.narc.arclient.ui;
 
-import android.animation.Animator;
-import android.animation.AnimatorListenerAdapter;
-import android.animation.ObjectAnimator;
 import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.AttributeSet;
-import android.view.Gravity;
+import android.view.animation.Animation;
+import android.view.animation.AnimationUtils;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.FrameLayout;
@@ -29,12 +27,8 @@ public class ArToastView extends FrameLayout {
     private final ImageView ivIcon;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private Runnable hideRunnable;
-    private ObjectAnimator fadeInAnimator;
-    private ObjectAnimator fadeOutAnimator;
 
     private static final long SHOW_DURATION_MS = 2000; // 显示时长
-    private static final long FADE_IN_DURATION_MS = 150;
-    private static final long FADE_OUT_DURATION_MS = 150;
 
     public ArToastView(Context context) {
         this(context, null);
@@ -72,13 +66,11 @@ public class ArToastView extends FrameLayout {
 
             cancelHide();
 
-            // 先停止旧动画，再重新淡入
-            cancelAnimators();
+            // 先停止旧动画，再重新入场
+            clearAnimation();
             setVisibility(View.VISIBLE);
-            setAlpha(0f);
-            fadeInAnimator = ObjectAnimator.ofFloat(this, View.ALPHA, 0f, 1f);
-            fadeInAnimator.setDuration(FADE_IN_DURATION_MS);
-            fadeInAnimator.start();
+            setAlpha(1f);
+            startAnimation(AnimationUtils.loadAnimation(getContext(), R.anim.toast_in));
 
             // 延迟隐藏
             hideRunnable = this::fadeOut;
@@ -92,34 +84,32 @@ public class ArToastView extends FrameLayout {
     }
 
     private void fadeOut() {
-        cancelAnimators();
-        fadeOutAnimator = ObjectAnimator.ofFloat(this, View.ALPHA, getAlpha(), 0f);
-        fadeOutAnimator.setDuration(FADE_OUT_DURATION_MS);
-        fadeOutAnimator.addListener(new AnimatorListenerAdapter() {
+        clearAnimation();
+        Animation fadeOut = AnimationUtils.loadAnimation(getContext(), R.anim.toast_out);
+        fadeOut.setAnimationListener(new android.view.animation.Animation.AnimationListener() {
             @Override
-            public void onAnimationEnd(Animator animation) {
+            public void onAnimationStart(Animation animation) {
+            }
+
+            @Override
+            public void onAnimationEnd(Animation animation) {
                 setVisibility(View.GONE);
+                clearAnimation();
+                setAlpha(1f);
+            }
+
+            @Override
+            public void onAnimationRepeat(Animation animation) {
             }
         });
-        fadeOutAnimator.start();
+        startAnimation(fadeOut);
     }
 
     private void cancelHide() {
         if (hideRunnable != null) {
             handler.removeCallbacks(hideRunnable);
         }
-        cancelAnimators();
-    }
-
-    private void cancelAnimators() {
-        if (fadeInAnimator != null) {
-            fadeInAnimator.cancel();
-            fadeInAnimator = null;
-        }
-        if (fadeOutAnimator != null) {
-            fadeOutAnimator.cancel();
-            fadeOutAnimator = null;
-        }
+        clearAnimation();
     }
 
     private void runOnUiThread(Runnable action) {

@@ -30,15 +30,16 @@ public class SubtitleStreamView extends FrameLayout {
     private String displayedText = "";
     private boolean isFinalState = false;
     private ObjectAnimator fadeOutAnimator;
+    private Runnable fadeOutRunnable;
     private Runnable typeTick;
 
     // Config
-    private static final int MAX_LINES = 3;
-    private static final int MAX_WIDTH_DP = 300; // keep narrow to reduce occlusion
-    private static final long TYPE_INTERVAL_MS = 16; // ~60fps
+    private static final int MAX_WIDTH_DP_FALLBACK = 300; // keep narrow to reduce occlusion
+    private static final long TYPE_INTERVAL_MS = 33; // ~30fps (AR spec: keep refresh <= 30fps)
     private static final long MAX_TYPE_DURATION_MS = 400; // cap typing animation duration
     private static final long FINAL_STAY_MS = 2200; // stay time before fade
-    private static final long FADE_DURATION_MS = 250;
+    private final long fadeDurationMs;
+    private final long appearDurationMs;
 
     public SubtitleStreamView(Context context) {
         this(context, null);
@@ -57,30 +58,35 @@ public class SubtitleStreamView extends FrameLayout {
         LayoutParams lp = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
         lp.gravity = Gravity.CENTER;
         textView.setLayoutParams(lp);
-        textView.setMaxLines(MAX_LINES);
+        textView.setMaxLines(getIntSafely(R.integer.subtitle_max_lines, 3));
         textView.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        textView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
-        textView.setTextColor(context.getResources().getColor(R.color.text_primary, null));
-        textView.setShadowLayer(2f, 0f, 1f, 0x80000000);
-        textView.setTypeface(android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.NORMAL));
-        textView.setLetterSpacing(0.01f);
-        textView.setLineSpacing(dp(2), 1.0f);
-
-        int maxWidthPx = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, MAX_WIDTH_DP,
-                getResources().getDisplayMetrics());
-        textView.setMaxWidth(maxWidthPx);
+        textView.setTextAppearance(R.style.TextAppearance_AR_Subtitle);
+        // Ensure max width is applied even if OEM ignores style maxWidth.
+        try {
+            textView.setMaxWidth((int) getResources().getDimension(R.dimen.max_width_subtitle));
+        } catch (Exception ignored) {
+            textView.setMaxWidth((int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, MAX_WIDTH_DP_FALLBACK,
+                    getResources().getDisplayMetrics()));
+        }
 
         // Background with premium design per AR guideline
         setBackgroundResource(R.drawable.bg_subtitle_premium);
 
-        int padH = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 16,
-                getResources().getDisplayMetrics());
-        int padV = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 10,
-                getResources().getDisplayMetrics());
-        setPadding(padH, padV, padH, padV);
+        // Padding is expected to come from XML (activity_main.xml) so it can follow
+        // tokens.
+        // Keep code-side default minimal to avoid overriding layout-driven spacing.
+        if (getPaddingLeft() == 0 && getPaddingTop() == 0 && getPaddingRight() == 0 && getPaddingBottom() == 0) {
+            int padH = (int) getResources().getDimension(R.dimen.spacing_md);
+            int padV = (int) getResources().getDimension(R.dimen.spacing_sm);
+            setPadding(padH, padV, padH, padV);
+        }
 
         setAlpha(0f);
         setVisibility(View.GONE);
+
+        // Align with design system animation tokens
+        appearDurationMs = getIntegerSafely(R.integer.anim_duration_fast, 150);
+        fadeDurationMs = getIntegerSafely(R.integer.anim_duration_normal, 250);
 
         addView(textView);
     }
@@ -91,7 +97,7 @@ public class SubtitleStreamView extends FrameLayout {
         // Show if hidden
         if (getVisibility() != View.VISIBLE) {
             setVisibility(View.VISIBLE);
-            animate().alpha(1f).setDuration(150).start();
+            animate().alpha(1f).setDuration(appearDurationMs).start();
         }
 
         cancelTyping();
@@ -167,8 +173,9 @@ public class SubtitleStreamView extends FrameLayout {
     }
 
     private void scheduleFadeOut() {
+        cancelFadeOut();
         fadeOutAnimator = ObjectAnimator.ofFloat(this, View.ALPHA, 1f, 0f);
-        fadeOutAnimator.setDuration(FADE_DURATION_MS);
+        fadeOutAnimator.setDuration(fadeDurationMs);
         fadeOutAnimator.addListener(new AnimatorListenerAdapter() {
             @Override
             public void onAnimationEnd(Animator animation) {
@@ -177,17 +184,22 @@ public class SubtitleStreamView extends FrameLayout {
             }
         });
 
-        handler.postDelayed(new Runnable() {
+        fadeOutRunnable = new Runnable() {
             @Override
             public void run() {
                 if (getVisibility() == View.VISIBLE && isFinalState) {
                     fadeOutAnimator.start();
                 }
             }
-        }, FINAL_STAY_MS);
+        };
+        handler.postDelayed(fadeOutRunnable, FINAL_STAY_MS);
     }
 
     private void cancelFadeOut() {
+        if (fadeOutRunnable != null) {
+            handler.removeCallbacks(fadeOutRunnable);
+            fadeOutRunnable = null;
+        }
         if (fadeOutAnimator != null) {
             fadeOutAnimator.cancel();
             fadeOutAnimator = null;
@@ -206,5 +218,21 @@ public class SubtitleStreamView extends FrameLayout {
 
     private int dp(int v) {
         return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, getResources().getDisplayMetrics());
+    }
+
+    private long getIntegerSafely(int resId, long fallback) {
+        try {
+            return getResources().getInteger(resId);
+        } catch (Exception ignored) {
+            return fallback;
+        }
+    }
+
+    private int getIntSafely(int resId, int fallback) {
+        try {
+            return getResources().getInteger(resId);
+        } catch (Exception ignored) {
+            return fallback;
+        }
     }
 }

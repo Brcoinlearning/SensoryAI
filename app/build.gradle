@@ -75,4 +75,6 @@ dependencies {
     implementation 'com.squareup.okhttp3:okhttp:4.11.0'
     implementation 'com.squareup.okhttp3:logging-interceptor:4.11.0'
 
+    // GIF 播放支持
+    implementation 'pl.droidsonroids.gif:android-gif-drawable:1.2.28'
 }

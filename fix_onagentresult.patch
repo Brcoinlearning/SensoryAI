@@ -1,0 +1,72 @@
+--- a/app/src/main/java/com/narc/arclient/MainActivity.java
++++ b/app/src/main/java/com/narc/arclient/MainActivity.java
+@@ -195,7 +195,12 @@ public class MainActivity extends AppCompatActivity {
+             @Override
+             public void onAgentResult(String result, String sessionId) {
+                 long receiveTime = System.currentTimeMillis();
+-                Log.i(TAG, "📥 [音频响应] 收到智能体结果，时间: " + receiveTime + ", session: " + sessionId);
++                Log.i(TAG, "📥 [识别完成] 收到结果，时间: " + receiveTime + ", session: " + sessionId);
++                
++                // 计算端到端耗时
++                if (lastImageSendTime > 0) {
++                    Log.i(TAG, "⏱️  端到端耗时: " + (receiveTime - lastImageSendTime) + "ms");
++                }
+                 
+                 // 解析并显示智能体最终回复
+                 runOnUiThread(() -> {
+@@ -204,24 +209,30 @@ public class MainActivity extends AppCompatActivity {
+                         Log.d(TAG, "📩 收到智能体结果，长度: " + result.length());
+                         Log.d(TAG, "📩 前200字符: " + result.substring(0, Math.min(200, result.length())));
+                         
+-                        // 从 JSON 中提取 answer 字段
+-                        org.json.JSONObject json = new org.json.JSONObject(result);
++                        String displayText = result;
+                         
+-                        // 尝试从多个可能的路径提取答案
+-                        String answer = "";
+-                        if (json.has("answer")) {
+-                            answer = json.optString("answer", "");
+-                        } else if (json.has("results") && json.getJSONObject("results").has("primary")) {
+-                            // 可能在 results.primary.original.answer
+-                            org.json.JSONObject primary = json.getJSONObject("results").getJSONObject("primary");
+-                            if (primary.has("original")) {
+-                                answer = primary.getJSONObject("original").optString("answer", "");
++                        // 先尝试解析为 JSON
++                        try {
++                            org.json.JSONObject json = new org.json.JSONObject(result);
++                            
++                            String answer = "";
++                            if (json.has("answer")) {
++                                answer = json.optString("answer", "");
++                            } else if (json.has("results") && json.getJSONObject("results").has("primary")) {
++                                org.json.JSONObject primary = json.getJSONObject("results").getJSONObject("primary");
++                                if (primary.has("original")) {
++                                    answer = primary.getJSONObject("original").optString("answer", "");
++                                }
+                             }
++                            
++                            if (!answer.isEmpty()) {
++                                displayText = answer;
++                            }
++                        } catch (org.json.JSONException jsonEx) {
++                            Log.d(TAG, "💡 JSON解析失败，显示纯文本");
+                         }
+                         
+-                        if (!answer.isEmpty()) {
+-                            Log.d(TAG, "✅ 提取到answer: " + answer.substring(0, Math.min(100, answer.length())));
+-                            setCardText("智能助手", answer, getResources().getColor(R.color.status_success, null));
++                        // 显示结果
++                        if (displayText.length() < 50) {
++                            setCardText("识别结果", displayText, getResources().getColor(R.color.status_success, null));
+                         } else {
+-                            Log.w(TAG, "⚠️ 未找到answer字段，显示原始数据");
+-                            setCardText("助手回复", result, getResources().getColor(R.color.status_success, null));
++                            setCardText("识别结果", displayText.substring(0, 100) + "...", getResources().getColor(R.color.status_success, null));
+                         }
+                     } catch (Exception e) {
+-                        Log.e(TAG, "❌ 解析智能体回复失败", e);
+-                        setCardText("助手回复", result, getResources().getColor(R.color.status_success, null));
++                        Log.e(TAG, "❌ 处理结果异常", e);
++                        setCardText("识别结果", result.substring(0, Math.min(50, result.length())), getResources().getColor(R.color.status_success, null));
+                     }
+                     triggerVibration();

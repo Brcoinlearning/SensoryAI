@@ -1,9 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 顶部状态栏背景 -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="rectangle">
-    <solid android:color="@color/surface_base"/>
-    <corners
-        android:bottomLeftRadius="@dimen/radius_md"
-        android:bottomRightRadius="@dimen/radius_md"/>
-</shape>
+<!-- 顶部状态栏背景：低饱和底色 + 微弱边框（增强层级但不刺眼） -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/surface_base"/>
+            <corners
+                android:bottomLeftRadius="@dimen/radius_md"
+                android:bottomRightRadius="@dimen/radius_md"/>
+        </shape>
+    </item>
+
+    <item>
+        <shape android:shape="rectangle">
+            <stroke
+                android:width="@dimen/border_thin"
+                android:color="@color/border_subtle"/>
+            <corners
+                android:bottomLeftRadius="@dimen/radius_md"
+                android:bottomRightRadius="@dimen/radius_md"/>
+        </shape>
+    </item>
+</layer-list>

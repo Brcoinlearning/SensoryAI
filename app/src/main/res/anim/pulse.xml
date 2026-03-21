@@ -1,23 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 脉冲动画 - 用于激活状态 -->
+<!-- 状态 pill 呼吸动画：仅 Listening/Processing 启用 -->
 <set xmlns:android="http://schemas.android.com/apk/res/android"
     android:interpolator="@android:anim/accelerate_decelerate_interpolator">
-    
+
     <scale
         android:fromXScale="1.0"
         android:fromYScale="1.0"
-        android:toXScale="1.1"
-        android:toYScale="1.1"
+        android:toXScale="1.03"
+        android:toYScale="1.03"
         android:pivotX="50%"
         android:pivotY="50%"
-        android:duration="800"
+        android:duration="1200"
         android:repeatCount="infinite"
         android:repeatMode="reverse"/>
-    
+
     <alpha
         android:fromAlpha="1.0"
-        android:toAlpha="0.6"
-        android:duration="800"
+        android:toAlpha="0.72"
+        android:duration="1200"
         android:repeatCount="infinite"
         android:repeatMode="reverse"/>
 </set>

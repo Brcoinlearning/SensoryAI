@@ -20,17 +20,18 @@
             android:layout_width="@dimen/icon_sm"
             android:layout_height="@dimen/icon_sm"
             android:src="@drawable/ic_assistant"
+            android:tint="@color/text_primary"
             android:layout_marginEnd="@dimen/spacing_xs"
+            android:visibility="gone"
             android:contentDescription="Toast图标"/>
 
         <TextView
             android:id="@+id/tv_toast_message"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            style="@style/TextAppearance_AR_Toast"
             android:text="提示信息"
-            android:textColor="@color/text_primary"
-            android:textSize="@dimen/text_sm"
-            android:fontFamily="sans-serif-medium"/>
+            />
 
     </LinearLayout>
 

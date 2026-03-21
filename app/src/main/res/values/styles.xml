@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!--
+      Text appearances for AR main screen components.
+      Goal: keep typography consistent and AR-friendly (low occlusion, readable, calm).
+    -->
+
+    <style name="TextAppearance_AR_Status">
+        <item name="android:fontFamily">HarmonyOS_Sans_SC</item>
+        <item name="android:textSize">@dimen/text_xs</item>
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:letterSpacing">0.01</item>
+        <item name="android:maxWidth">@dimen/max_width_status</item>
+        <item name="android:maxLines">@integer/status_max_lines</item>
+        <item name="android:ellipsize">end</item>
+    </style>
+
+    <style name="TextAppearance_AR_Toast">
+        <item name="android:fontFamily">HarmonyOS_Sans_SC</item>
+        <item name="android:textSize">@dimen/text_sm</item>
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:letterSpacing">0.01</item>
+        <item name="android:lineSpacingMultiplier">1.25</item>
+        <item name="android:shadowColor">@color/overlay_light</item>
+        <item name="android:shadowRadius">1.5</item>
+        <item name="android:shadowDx">0</item>
+        <item name="android:shadowDy">1</item>
+        <item name="android:maxWidth">@dimen/max_width_toast</item>
+        <item name="android:maxLines">@integer/toast_max_lines</item>
+        <item name="android:ellipsize">end</item>
+    </style>
+
+    <style name="TextAppearance_AR_Card_Title">
+        <item name="android:fontFamily">HarmonyOS_Sans_SC</item>
+        <item name="android:textSize">@dimen/text_lg</item>
+        <item name="android:textColor">@color/text_accent</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:letterSpacing">0.02</item>
+        <item name="android:maxWidth">@dimen/max_width_card</item>
+        <item name="android:maxLines">@integer/card_title_max_lines</item>
+        <item name="android:ellipsize">end</item>
+    </style>
+
+    <style name="TextAppearance_AR_Card_Body">
+        <item name="android:fontFamily">HarmonyOS_Sans_SC</item>
+        <item name="android:textSize">@dimen/text_md</item>
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:letterSpacing">0.01</item>
+        <item name="android:lineSpacingMultiplier">1.35</item>
+        <item name="android:shadowColor">@color/overlay_light</item>
+        <item name="android:shadowRadius">1.5</item>
+        <item name="android:shadowDx">0</item>
+        <item name="android:shadowDy">1</item>
+        <item name="android:maxWidth">@dimen/max_width_card</item>
+        <item name="android:maxLines">@integer/card_body_max_lines</item>
+        <item name="android:ellipsize">end</item>
+    </style>
+
+    <style name="TextAppearance_AR_Subtitle">
+        <item name="android:fontFamily">HarmonyOS_Sans_SC</item>
+        <item name="android:textSize">@dimen/text_sm</item>
+        <item name="android:textColor">@color/text_secondary</item>
+        <item name="android:letterSpacing">0.01</item>
+        <item name="android:lineSpacingMultiplier">1.25</item>
+        <item name="android:shadowColor">@color/overlay_light</item>
+        <item name="android:shadowRadius">1.5</item>
+        <item name="android:shadowDx">0</item>
+        <item name="android:shadowDy">1</item>
+        <item name="android:maxWidth">@dimen/max_width_subtitle</item>
+        <item name="android:maxLines">@integer/subtitle_max_lines</item>
+        <item name="android:ellipsize">end</item>
+    </style>
+
+</resources>

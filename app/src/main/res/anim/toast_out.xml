@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:interpolator="@android:anim/accelerate_interpolator"
+    android:fillAfter="true">
+
+    <alpha
+        android:fromAlpha="1.0"
+        android:toAlpha="0.0"
+        android:duration="@integer/anim_duration_normal"/>
+
+    <translate
+        android:fromYDelta="0dp"
+        android:toYDelta="14dp"
+        android:duration="@integer/anim_duration_normal"/>
+</set>

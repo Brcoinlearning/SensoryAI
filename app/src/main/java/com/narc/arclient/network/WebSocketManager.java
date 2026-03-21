@@ -23,19 +23,27 @@ import java.util.concurrent.TimeUnit;
 public class WebSocketManager {
     private static final String TAG = "WebSocketManager";
     // ngrok 公网地址 - 使用 wss:// 安全连接，强制 IPv4
-    // 注意：ngrok 域名会自动解析，这里我们通过 OkHttpClient 配置强制 IPv4
-    private static final String WS_URL = "wss://emotionless-kneadingly-tora.ngrok-free.dev/ws/audio_stream";
+    private static final String BASE_URL = "wss://emotionless-kneadingly-tora.ngrok-free.dev";
+    private static final String AUDIO_STREAM_PATH = "/ws/audio_stream";
+    private static final String IMAGE_STREAM_PATH = "/ws/image_stream";
 
     private static WebSocketManager instance;
     private WebSocket webSocket;
+    private WebSocket imageWebSocket; // 独立的图片流 WebSocket
     private OkHttpClient client;
     private Gson gson = new Gson();
     private String currentSessionId;
+    private String currentSectionId; // 多模态会话ID，用于关联图片和音频
     private boolean isManualClose = false;
+    private volatile boolean isAudioConnected = false;
+    private volatile boolean isImageConnected = false;
     private int reconnectAttempts = 0;
     private static final int MAX_RECONNECT_ATTEMPTS = 5;
     private static final long RECONNECT_DELAY_MS = 3000;
     private Handler reconnectHandler = new Handler(Looper.getMainLooper());
+
+    // 当前 WebSocket 类型：\"audio\" 或 \"image\"
+    private String currentWebSocketType = "audio";
 
     public interface MessageListener {
         void onSubtitleUpdate(String text, boolean isFinal);
@@ -57,22 +65,6 @@ public class WebSocketManager {
         client = new OkHttpClient.Builder()
                 .readTimeout(0, TimeUnit.MILLISECONDS) // WebSocket 必须禁用超时
                 .pingInterval(10, TimeUnit.SECONDS) // 心跳保活
-                .dns(hostname -> {
-                    // 强制使用 IPv4，过滤掉 IPv6 地址
-                    try {
-                        java.net.InetAddress[] addresses = java.net.InetAddress.getAllByName(hostname);
-                        java.util.List<java.net.InetAddress> ipv4Only = new java.util.ArrayList<>();
-                        for (java.net.InetAddress addr : addresses) {
-                            if (addr instanceof java.net.Inet4Address) {
-                                ipv4Only.add(addr);
-                            }
-                        }
-                        return ipv4Only.isEmpty() ? java.util.Arrays.asList(addresses) : ipv4Only;
-                    } catch (Exception e) {
-                        Log.e(TAG, "DNS 解析失败", e);
-                        return okhttp3.Dns.SYSTEM.lookup(hostname);
-                    }
-                })
                 .build();
     }
 
@@ -87,17 +79,100 @@ public class WebSocketManager {
         this.listener = listener;
     }
 
+    /**
+     * 连接到音频流（字幕）
+     * 
+     * @param sectionId 可选的多模态会话ID
+     */
+    public void connect(String sectionId) {
+        connectToAudioStream(sectionId);
+    }
+
+    /**
+     * 连接到音频流（字幕，无sectionId）
+     */
     public void connect() {
+        connectToAudioStream(null);
+    }
+
+    /**
+     * 连接到音频流
+     * 
+     * @param sectionId 可选的多模态会话ID，如果提供则在URL中传递
+     */
+    public void connectToAudioStream(String sectionId) {
         isManualClose = false;
         reconnectAttempts = 0;
+        isAudioConnected = false;
         if (webSocket != null) {
             webSocket.close(1000, "Reconnecting");
         }
         if (currentSessionId == null) {
             currentSessionId = UUID.randomUUID().toString();
         }
-        Request request = new Request.Builder().url(WS_URL).build();
-        webSocket = client.newWebSocket(request, new SocketListener());
+
+        // 如果提供了sectionId，保存并添加到URL参数中
+        if (sectionId != null && !sectionId.isEmpty()) {
+            this.currentSectionId = sectionId;
+        }
+
+        String url = BASE_URL + AUDIO_STREAM_PATH;
+        if (this.currentSectionId != null && !this.currentSectionId.isEmpty()) {
+            url += "?section_id=" + this.currentSectionId;
+            Log.d(TAG, "🔗 音频流连接携带 sectionId: " + this.currentSectionId);
+        }
+
+        currentWebSocketType = "audio";
+        Log.d(TAG, "连接到音频流: " + url);
+        Request request = new Request.Builder().url(url).build();
+        webSocket = client.newWebSocket(request, new SocketListener("audio"));
+    }
+
+    /**
+     * 连接到音频流（无sectionId，纯语音识别）
+     */
+    public void connectToAudioStream() {
+        connectToAudioStream(null);
+    }
+
+    /**
+     * 连接到图片流
+     * 
+     * @param sectionId 可选的多模态会话ID，如果提供则在URL中传递
+     */
+    public void connectToImageStream(String sectionId) {
+        isManualClose = false;
+        reconnectAttempts = 0;
+        isImageConnected = false;
+        if (imageWebSocket != null) {
+            imageWebSocket.close(1000, "Reconnecting");
+        }
+        if (currentSessionId == null) {
+            currentSessionId = UUID.randomUUID().toString();
+        }
+
+        // 如果提供了sectionId，保存并添加到URL参数中
+        if (sectionId != null && !sectionId.isEmpty()) {
+            this.currentSectionId = sectionId;
+        }
+
+        String url = BASE_URL + IMAGE_STREAM_PATH;
+        if (this.currentSectionId != null && !this.currentSectionId.isEmpty()) {
+            url += "?section_id=" + this.currentSectionId;
+            Log.d(TAG, "🔗 图片流连接携带 sectionId: " + this.currentSectionId);
+        }
+
+        currentWebSocketType = "image";
+        Log.d(TAG, "连接到图片流: " + url + ", SessionId: " + currentSessionId);
+        Request request = new Request.Builder().url(url).build();
+        imageWebSocket = client.newWebSocket(request, new SocketListener("image"));
+    }
+
+    /**
+     * 连接到图片流（无sectionId，纯视觉识别）
+     */
+    public void connectToImageStream() {
+        connectToImageStream(null);
     }
 
     /**
@@ -115,9 +190,48 @@ public class WebSocketManager {
         return currentSessionId;
     }
 
+    /**
+     * 设置多模态会话ID（用于关联图片和音频）
+     */
+    public void setSectionId(String sectionId) {
+        this.currentSectionId = sectionId;
+        Log.d(TAG, "🆔 设置 sectionId: " + sectionId);
+    }
+
+    /**
+     * 获取当前多模态会话ID
+     */
+    public String getCurrentSectionId() {
+        return currentSectionId;
+    }
+
+    /**
+     * 清除多模态会话ID
+     */
+    public void clearSectionId() {
+        this.currentSectionId = null;
+        Log.d(TAG, "🧹 清除 sectionId");
+    }
+
     public void sendAudio(byte[] pcmData, int len) {
         if (webSocket != null) {
             webSocket.send(ByteString.of(pcmData, 0, len));
+        }
+    }
+
+    /**
+     * 发送图片数据块 (用于流式图片上传到 /ws/image_stream)
+     * 直接发送二进制数据，后端自动处理完整图片识别
+     * 
+     * @param imageData 图片字节数据（JPEG/PNG 等常见格式）
+     * @param len       实际数据长度
+     */
+    public void sendImageData(byte[] imageData, int len) {
+        if (imageWebSocket != null && isImageConnected) {
+            Log.d(TAG, "📤 发送图片数据: " + len + " bytes");
+            imageWebSocket.send(ByteString.of(imageData, 0, len));
+        } else {
+            Log.e(TAG, "❌ 图片 WebSocket 未连接或未就绪");
         }
     }
 
@@ -133,20 +247,53 @@ public class WebSocketManager {
 
     public void close() {
         isManualClose = true;
+        isAudioConnected = false;
+        isImageConnected = false;
         reconnectHandler.removeCallbacksAndMessages(null);
         if (webSocket != null) {
             webSocket.close(1000, "User Closed");
             webSocket = null;
         }
+        if (imageWebSocket != null) {
+            imageWebSocket.close(1000, "User Closed");
+            imageWebSocket = null;
+        }
+    }
+
+    /**
+     * 图片流 WebSocket 是否已建立且可发送
+     */
+    public boolean isImageWebSocketConnected() {
+        return isImageConnected;
+    }
+
+    /**
+     * 音频流 WebSocket 是否已建立且可发送
+     */
+    public boolean isAudioWebSocketConnected() {
+        return isAudioConnected;
     }
 
     private class SocketListener extends WebSocketListener {
+        private String type; // "audio" 或 "image"
+
+        public SocketListener(String type) {
+            this.type = type;
+        }
+
         @Override
         public void onOpen(WebSocket webSocket, Response response) {
-            Log.d(TAG, "WebSocket Connected");
+            Log.d(TAG, "WebSocket Connected [" + type + "]");
             reconnectAttempts = 0;
-            if (listener != null) {
+            if ("audio".equals(type)) {
+                isAudioConnected = true;
+            } else if ("image".equals(type)) {
+                isImageConnected = true;
+            }
+            if ("audio".equals(type) && listener != null) {
                 runOnUiThread(() -> listener.onConnected());
+            } else if ("image".equals(type)) {
+                Log.d(TAG, "✅ 图片流 WebSocket 已连接，可以开始推送图片");
             }
         }
 
@@ -158,15 +305,31 @@ public class WebSocketManager {
         @Override
         public void onClosed(WebSocket webSocket, int code, String reason) {
             Log.d(TAG, "WebSocket Closed: " + reason);
-            if (listener != null) {
+            if ("audio".equals(type)) {
+                isAudioConnected = false;
+            } else if ("image".equals(type)) {
+                isImageConnected = false;
+            }
+            if (listener != null && "audio".equals(type)) {
                 runOnUiThread(() -> listener.onDisconnected(reason));
             }
         }
 
         @Override
         public void onFailure(WebSocket webSocket, Throwable t, Response response) {
-            Log.e(TAG, "WebSocket Error", t);
-            if (listener != null) {
+            if ("audio".equals(type)) {
+                isAudioConnected = false;
+            } else if ("image".equals(type)) {
+                isImageConnected = false;
+            }
+            if (response != null) {
+                Log.e(TAG, "WebSocket Error: code=" + response.code()
+                        + ", message=" + response.message()
+                        + ", headers=" + response.headers(), t);
+            } else {
+                Log.e(TAG, "WebSocket Error: no HTTP response, message=" + t.getMessage(), t);
+            }
+            if (listener != null && "audio".equals(type)) {
                 runOnUiThread(() -> {
                     listener.onError("connection", "连接失败: " + t.getMessage());
                     listener.onDisconnected("连接失败");
@@ -176,21 +339,46 @@ public class WebSocketManager {
             if (!isManualClose && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
                 reconnectAttempts++;
                 Log.d(TAG, "尝试重连 (" + reconnectAttempts + "/" + MAX_RECONNECT_ATTEMPTS + ")");
-                reconnectHandler.postDelayed(() -> connect(), RECONNECT_DELAY_MS);
+                reconnectHandler.postDelayed(() -> {
+                    if ("image".equals(type)) {
+                        connectToImageStream(currentSectionId);
+                    } else {
+                        connectToAudioStream(currentSectionId);
+                    }
+                }, RECONNECT_DELAY_MS);
             }
         }
     }
 
     private void handleMessage(String json) {
         try {
-            BaseMessage base = gson.fromJson(json, BaseMessage.class);
-            if (base == null || base.type == null)
-                return;
+            Log.d(TAG, "📨 WebSocket 消息: " + json.substring(0, Math.min(100, json.length())) + "...");
 
+            // 先尝试作为 JSON 解析
+            BaseMessage base = null;
+            try {
+                base = gson.fromJson(json, BaseMessage.class);
+            } catch (Exception e) {
+                Log.d(TAG, "⚠️ 无法解析为 JSON，尝试作为纯文本处理");
+            }
+
+            // 如果 JSON 解析失败或没有 type，尝试直接处理为结果
+            if (base == null || base.type == null) {
+                Log.d(TAG, "💡 消息作为纯文本处理，可能是识别结果: " + json);
+                // 当作纯文本结果返回
+                if (listener != null) {
+                    runOnUiThread(() -> {
+                        listener.onAgentResult(json, "unknown");
+                    });
+                }
+                return;
+            }
+
+            final BaseMessage finalBase = base; // make effectively final for lambda
             runOnUiThread(() -> {
                 if (listener == null)
                     return;
-                switch (base.type) {
+                switch (finalBase.type) {
                     case "subtitle":
                         SubtitleMessage sub = gson.fromJson(json, SubtitleMessage.class);
                         // 修复：is_partial=true 表示部分结果，isFinal=!is_partial
@@ -216,9 +404,9 @@ public class WebSocketManager {
                 }
             });
         } catch (Exception e) {
-            Log.e(TAG, "JSON Parse Error", e);
+            Log.e(TAG, "JSON Parse Error: " + e.getMessage(), e);
             if (listener != null) {
-                runOnUiThread(() -> listener.onError("parse", "消息解析失败: " + e.getMessage()));
+                runOnUiThread(() -> listener.onError("parse", "消息处理失败: " + e.getMessage()));
             }
         }
     }
