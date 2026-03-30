@@ -227,6 +227,10 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
     private float touchDownY = 0;
     private static final long TAP_TIMEOUT_MS = 500; // 单击最长允许时间
     private static final float TAP_SLOP_PX = 50; // 单击最大允许移动像素
+    private static final long TP_DOUBLE_TAP_WINDOW_MS = 500L;
+    private long lastTpTapUpAt = 0L;
+    private Runnable pendingTpCycleFunctionRunnable = null;
+    private final Handler tpTapHandler = new Handler(Looper.getMainLooper());
 
     // TTS 文字转语音管理器
     private TTSManager ttsManager;
@@ -264,6 +268,13 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
 
         // 6. 检查权限并启动逻辑
         checkPermissionsAndStart();
+
+        // 7. 恢复已保存的提醒 (重启后重新调度)
+        ReminderCardData savedReminder = loadLocalReminderData();
+        if (savedReminder != null) {
+            scheduleLocalReminderAtPlanTime(savedReminder);
+            Log.d(TAG, "已恢复保存的提醒: " + savedReminder.drugName + " @ " + savedReminder.reminderTime);
+        }
     }
 
     @Override
@@ -329,8 +340,29 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
                 if (isInteractiveCardVisible()) {
                     return true;
                 }
-                if (ENABLE_FAKE_BACKEND_DEMO && currentMode == Mode.MULTI) {
-                    cycleMultiDemoSelectionByHardware();
+                if (ENABLE_FAKE_BACKEND_DEMO) {
+                    long now = System.currentTimeMillis();
+                    boolean isDoubleTap = lastTpTapUpAt > 0L && (now - lastTpTapUpAt) <= TP_DOUBLE_TAP_WINDOW_MS;
+                    if (isDoubleTap) {
+                        // 第二次点击：若有延迟切换任务则取消，然后触发录像控制
+                        if (pendingTpCycleFunctionRunnable != null) {
+                            tpTapHandler.removeCallbacks(pendingTpCycleFunctionRunnable);
+                            pendingTpCycleFunctionRunnable = null;
+                        }
+                        lastTpTapUpAt = 0L;
+                        toggleLocalVideoRecordingByHardware();
+                    } else {
+                        // 第一次点击：记录时间；MULTI 模式下保留单击切换能力
+                        lastTpTapUpAt = now;
+                        if (currentMode == Mode.MULTI) {
+                            if (pendingTpCycleFunctionRunnable != null) {
+                                tpTapHandler.removeCallbacks(pendingTpCycleFunctionRunnable);
+                            }
+                            pendingTpCycleFunctionRunnable = this::cycleMultiDemoSelectionByHardware;
+                            tpTapHandler.postDelayed(pendingTpCycleFunctionRunnable, TP_DOUBLE_TAP_WINDOW_MS);
+                        }
+                    }
+                    // 演示模式下禁用单击触发，避免与"双击录像控制"冲突。
                     return true;
                 }
                 boolean handled = tryTriggerCaptureViaHardware();
@@ -1112,6 +1144,33 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
         showArToast(message, 0);
     }
 
+    private void toggleLocalVideoRecordingByHardware() {
+        ICameraManager cameraManager = ICameraManager.getInstance();
+        if (cameraManager == null) {
+            showArToast("录像不可用");
+            return;
+        }
+
+        if (cameraManager.isVideoRecording()) {
+            cameraManager.stopVideoRecording();
+            videoStopHandler.removeCallbacksAndMessages(null);
+            showArToast("录制已结束");
+            if (ttsManager != null) {
+                ttsManager.speakWithSound("录制已结束");
+            }
+            Log.d(TAG, "双击：手动停止本地录像");
+            return;
+        }
+
+        cameraManager.startVideoRecordingIfReady();
+        if (!cameraManager.isVideoRecording()) {
+            showArToast("录像未就绪，请稍后重试");
+            Log.w(TAG, "双击：启动本地录像失败，录像器未就绪");
+        } else {
+            Log.d(TAG, "双击：手动开始本地录像");
+        }
+    }
+
     public void notifyVideoRecordingStarted() {
         runOnUiThread(() -> {
             String msg = "录制已开始";
@@ -1151,31 +1210,17 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
 
         postSubtitleAt(baseDelay + 0, "妈", false);
         postSubtitleAt(baseDelay + 300, "妈，", false);
-        postSubtitleAt(baseDelay + 600, "妈，这", false);
-        postSubtitleAt(baseDelay + 900, "妈，这个", false);
-        postSubtitleAt(baseDelay + 1200, "妈，这个药", false);
-        postSubtitleAt(baseDelay + 1500, "妈，这个药医", false);
-        postSubtitleAt(baseDelay + 1800, "妈，这个药医生", false);
-
-        // 纠错演示：先错后改
-        postSubtitleAt(baseDelay + 2100, "妈，这个药医生睡了", false);
-        postSubtitleAt(baseDelay + 2700, "妈，这个药医生说了", false);
-
-        postSubtitleAt(baseDelay + 3300, "妈，这个药医生说了，要", false);
-        postSubtitleAt(baseDelay + 3900, "妈，这个药医生说了，要饭后", false);
-        postSubtitleAt(baseDelay + 4500, "妈，这个药医生说了，要饭后吃。", true);
-
-        // 下一句（停顿 1 秒）
-        postSubtitleAt(baseDelay + 5500, "一次", false);
-        postSubtitleAt(baseDelay + 5900, "一次吃", false);
-        postSubtitleAt(baseDelay + 6300, "一次吃两", false);
-        postSubtitleAt(baseDelay + 6700, "一次吃两粒", false);
-        postSubtitleAt(baseDelay + 7200, "一次吃两粒，", false);
-        postSubtitleAt(baseDelay + 7500, "一次吃两粒，别", false);
-        postSubtitleAt(baseDelay + 7800, "一次吃两粒，别忘了", false);
-        postSubtitleAt(baseDelay + 8100, "一次吃两粒，别忘了喝", false);
-        postSubtitleAt(baseDelay + 8400, "一次吃两粒，别忘了喝温水", false);
-        postSubtitleAt(baseDelay + 8700, "一次吃两粒，别忘了喝温水。", true);
+        postSubtitleAt(baseDelay + 600, "妈，这是", false);
+        postSubtitleAt(baseDelay + 900, "妈，这是我", false);
+        postSubtitleAt(baseDelay + 1200, "妈，这是我今天", false);
+        postSubtitleAt(baseDelay + 1500, "妈，这是我今天下午", false);
+        postSubtitleAt(baseDelay + 1800, "妈，这是我今天下午给你带的", false);
+        postSubtitleAt(baseDelay + 2300, "妈，这是我今天下午给你带的感冒药，", false);
+        postSubtitleAt(baseDelay + 2800, "妈，这是我今天下午给你带的感冒药，一天", false);
+        postSubtitleAt(baseDelay + 3300, "妈，这是我今天下午给你带的感冒药，一天吃三次", false);
+        postSubtitleAt(baseDelay + 3800, "妈，这是我今天下午给你带的感冒药，一天吃三次就行，", false);
+        postSubtitleAt(baseDelay + 4400, "妈，这是我今天下午给你带的感冒药，一天吃三次就行，晚上记得", false);
+        postSubtitleAt(baseDelay + 5000, "妈，这是我今天下午给你带的感冒药，一天吃三次就行，晚上记得早点休息", true);
 
         // 单次演示：播放一遍后停止，不再循环
         subtitleDemoHandler.postDelayed(() -> {
@@ -1907,7 +1952,7 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
         return new ReminderCardData(
                 "999感冒灵颗粒",
                 "一次1袋，一日3次",
-                "20:26",
+                "13:15",
                 "照片识别");
     }
 
@@ -3112,9 +3157,9 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
     }
 
     private long computeNextReminderTriggerAt(String reminderTime) {
-        String safeTime = firstNonBlank(reminderTime, "20:26");
-        int hour = 20;
-        int minute = 26;
+        String safeTime = firstNonBlank(reminderTime, "13:15");
+        int hour = 13;
+        int minute = 15;
         if (!isBlank(safeTime) && safeTime.contains(":")) {
             String[] parts = safeTime.split(":");
             if (parts.length >= 2) {
