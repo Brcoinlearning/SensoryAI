@@ -72,6 +72,70 @@
             android:scrollHorizontally="false"
             />
 
+        <!-- 次级信息（用于确认卡的说明） -->
+        <TextView
+            android:id="@+id/tv_card_meta"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            style="@style/TextAppearance_AR_Card_Meta"
+            android:layout_marginTop="@dimen/spacing_sm"
+            android:text="次级信息"
+            android:visibility="gone" />
+
+        <!-- 操作区分割线 -->
+        <View
+            android:id="@+id/v_card_action_divider"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/border_thin"
+            android:layout_marginTop="@dimen/spacing_md"
+            android:layout_marginBottom="@dimen/spacing_sm"
+            android:background="@drawable/bg_card_section_divider"
+            android:visibility="gone" />
+
+        <!-- 操作按钮区（交互态，支持悬停预选+触发） -->
+        <LinearLayout
+            android:id="@+id/layout_card_actions"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="end"
+            android:gravity="end"
+            android:orientation="horizontal"
+            android:paddingStart="@dimen/spacing_sm"
+            android:paddingEnd="@dimen/spacing_sm"
+            android:paddingTop="@dimen/spacing_sm"
+            android:paddingBottom="@dimen/spacing_sm"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/tv_card_action_secondary"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                style="@style/TextAppearance_AR_Card_Action"
+                android:background="@drawable/bg_card_action_secondary_selector"
+                android:minWidth="112dp"
+                android:paddingLeft="@dimen/spacing_lg"
+                android:paddingTop="@dimen/spacing_md"
+                android:paddingRight="@dimen/spacing_lg"
+                android:paddingBottom="@dimen/spacing_md"
+                android:text="稍后"
+                android:textAlignment="center" />
+
+            <TextView
+                android:id="@+id/tv_card_action_primary"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                style="@style/TextAppearance_AR_Card_Action"
+                android:layout_marginStart="@dimen/spacing_sm"
+                android:background="@drawable/bg_card_action_primary_selector"
+                android:minWidth="124dp"
+                android:paddingLeft="@dimen/spacing_lg"
+                android:paddingTop="@dimen/spacing_md"
+                android:paddingRight="@dimen/spacing_lg"
+                android:paddingBottom="@dimen/spacing_md"
+                android:text="确认"
+                android:textAlignment="center" />
+        </LinearLayout>
+
     </LinearLayout>
 
 </FrameLayout>

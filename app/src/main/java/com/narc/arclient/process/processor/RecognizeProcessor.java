@@ -254,7 +254,14 @@ public class RecognizeProcessor {
                 hoverStartTime = 0;
                 micHoverStartTime = 0;
             } else {
-                if (cx > BUTTON_AREA_X && cy > BUTTON_AREA_Y) {
+                RenderProcessor renderProcessor = RenderProcessor.getInstance();
+                boolean isHoveringMainUiControl = renderProcessor != null && renderProcessor.isHoveringMainUiControl();
+
+                if (isHoveringMainUiControl) {
+                    // 主界面按钮交互期间不累计“识别悬停进度”，避免离开按钮后出现半截读条。
+                    hoverStartTime = 0;
+                    micHoverStartTime = 0;
+                } else if (cx > BUTTON_AREA_X && cy > BUTTON_AREA_Y) {
                     isMicHovered = true;
                     hoverStartTime = 0;
                     if (micHoverStartTime == 0) {

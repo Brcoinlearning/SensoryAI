@@ -67,6 +67,12 @@ public class RenderProcessor {
     private Movie micRecordingMovie; // 左上角麦克风录音态 GIF
     private long micMovieStartTime = 0L;
     private boolean isHoveringModeBtn = false;
+    private boolean isCardBlockingGestureProgress = false;
+
+    // 左眼真实光标在整屏中的归一化坐标（用于UI层命中判定）
+    private boolean hasLeftCursorPoint = false;
+    private float leftCursorNormX = 0f;
+    private float leftCursorNormY = 0f;
 
     // 预留：后续可接入拍照识药模式的麦克风出现/消失动画
     private float micVisibilityProgress = 0f; // 拍照模式为默认模式，启动时麦克风隐藏
@@ -193,6 +199,34 @@ public class RenderProcessor {
         rippleColor = prevColor;
     }
 
+    public boolean isHoveringMicButton() {
+        return isHoveringBtn;
+    }
+
+    public boolean isHoveringModeButton() {
+        return isHoveringModeBtn;
+    }
+
+    public boolean isHoveringMainUiControl() {
+        return isHoveringBtn || isHoveringModeBtn;
+    }
+
+    public void setCardBlockingGestureProgress(boolean blocking) {
+        isCardBlockingGestureProgress = blocking;
+    }
+
+    public boolean hasLeftCursorPoint() {
+        return hasLeftCursorPoint;
+    }
+
+    public float getLeftCursorNormX() {
+        return leftCursorNormX;
+    }
+
+    public float getLeftCursorNormY() {
+        return leftCursorNormY;
+    }
+
     private void initPaints() {
         // 1. 指尖光标
         paintCursor = new Paint();
@@ -265,6 +299,7 @@ public class RenderProcessor {
     public void draw(Canvas canvas) {
         if (canvas == null)
             return;
+        hasLeftCursorPoint = false;
         int w = canvas.getWidth();
         int h = canvas.getHeight();
         int halfW = w / 2;
@@ -549,6 +584,17 @@ public class RenderProcessor {
 
             float realCursorX = offsetX + clampedLocalX;
             float realCursorY = clampedLocalY;
+
+            if (isLeftEye) {
+                // 关键：命中判定使用的是单眼UI根布局，因此这里必须基于“单眼视区”归一化。
+                // 若按整屏宽度归一化，会导致按钮命中位置整体偏移（常见表现：不高亮、不触发）。
+                float eyeWidth = Math.max(1f, w);
+                float eyeHeight = Math.max(1f, h);
+                leftCursorNormX = Math.max(0f, Math.min(1f, clampedLocalX / eyeWidth));
+                leftCursorNormY = Math.max(0f, Math.min(1f, clampedLocalY / eyeHeight));
+                hasLeftCursorPoint = true;
+            }
+
             // 柔和光晕（不改变主色）
             canvas.drawCircle(realCursorX, realCursorY, 40f, paintCursorGlow);
             // 主体描边
@@ -562,7 +608,11 @@ public class RenderProcessor {
             }
 
             // 物体识别进度条 (仅在不悬停任何按钮且未锁定时显示)
-            if (!isLocked && renderData.getProgress() > 0 && !isHoveringBtn && !isHoveringModeBtn) {
+            if (!isLocked
+                    && !isCardBlockingGestureProgress
+                    && renderData.getProgress() > 0
+                    && !isHoveringBtn
+                    && !isHoveringModeBtn) {
                 RectF rect = new RectF(realCursorX - 30, realCursorY - 30, realCursorX + 30, realCursorY + 30);
                 canvas.drawArc(rect, -90, renderData.getProgress() * 360, false, paintCursorProgress);
             }
