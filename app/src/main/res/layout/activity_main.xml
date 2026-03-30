@@ -91,7 +91,7 @@
         android:layout_marginLeft="@dimen/margin_safe_horizontal"
         android:layout_marginRight="@dimen/margin_safe_horizontal" />
 
-    <!-- 调试面板 (生产环境隐藏) -->
+    <!-- 开发面板 (生产环境隐藏) -->
     <LinearLayout
         android:id="@+id/debug_panel"
         android:layout_width="wrap_content"
@@ -106,7 +106,7 @@
             android:id="@+id/btn_mock_data"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="模拟手势触发"
+            android:text="开发触发"
             android:textColor="@color/text_primary"
             android:textSize="@dimen/text_sm"
             android:fontFamily="HarmonyOS_Sans_SC"
