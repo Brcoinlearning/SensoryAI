@@ -18,16 +18,8 @@ android {
     }
 
     buildTypes {
-        debug {
-            buildConfigField 'boolean', 'ENABLE_FAKE_BACKEND_DEMO', 'false'
-            buildConfigField 'boolean', 'ENABLE_HTTP_LOGGING', 'true'
-            buildConfigField 'String', 'API_BASE_URL', '"https://emotionless-kneadingly-tora.ngrok-free.dev/"'
-        }
         release {
             minifyEnabled false
-            buildConfigField 'boolean', 'ENABLE_FAKE_BACKEND_DEMO', 'false'
-            buildConfigField 'boolean', 'ENABLE_HTTP_LOGGING', 'false'
-            buildConfigField 'String', 'API_BASE_URL', '"https://emotionless-kneadingly-tora.ngrok-free.dev/"'
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
@@ -39,7 +31,6 @@ android {
 
     buildFeatures {
         viewBinding = true
-        buildConfig = true
     }
 
     // [已删除] sourceSets { main { proto { ... } } }
