@@ -57,25 +57,6 @@
         <item name="android:ellipsize">end</item>
     </style>
 
-    <style name="TextAppearance_AR_Card_Meta">
-        <item name="android:fontFamily">HarmonyOS_Sans_SC</item>
-        <item name="android:textSize">@dimen/text_sm</item>
-        <item name="android:textColor">@color/text_secondary</item>
-        <item name="android:letterSpacing">0.01</item>
-        <item name="android:lineSpacingMultiplier">1.2</item>
-        <item name="android:maxWidth">@dimen/max_width_card</item>
-        <item name="android:maxLines">2</item>
-        <item name="android:ellipsize">end</item>
-    </style>
-
-    <style name="TextAppearance_AR_Card_Action">
-        <item name="android:fontFamily">HarmonyOS_Sans_SC</item>
-        <item name="android:textSize">@dimen/text_sm</item>
-        <item name="android:textColor">@color/text_primary</item>
-        <item name="android:textStyle">bold</item>
-        <item name="android:letterSpacing">0.01</item>
-    </style>
-
     <style name="TextAppearance_AR_Subtitle">
         <item name="android:fontFamily">HarmonyOS_Sans_SC</item>
         <item name="android:textSize">@dimen/text_sm</item>
