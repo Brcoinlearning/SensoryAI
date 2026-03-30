@@ -31,10 +31,16 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
 
+import com.narc.arclient.BuildConfig;
+import com.narc.arclient.network.RetrofitClient;
+
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.Locale;
+import java.util.Map;
+import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -50,6 +56,11 @@ import com.narc.arclient.process.processor.RecognizeProcessor;
 import com.narc.arclient.process.processor.RenderProcessor;
 import com.narc.arclient.process.processor.SendRemoteProcessor;
 import com.narc.arclient.utils.TTSManager;
+
+import okhttp3.ResponseBody;
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
 
 public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
 
@@ -94,32 +105,15 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
         RESULT_NOTIFICATION
     }
 
-    private enum DemoSegment {
-        PHOTO_RECOGNITION,
-        REALTIME_SUBTITLE,
-        MULTI_MODAL_QA,
-        REMINDER_FLOW,
-        SMS_STATUS
-    }
-
     private Mode currentMode = Mode.PHOTO; // 默认：拍照识药模式
     private boolean isModeLocked = false; // 防止交互过程中切换模式
     private String currentSectionId = null; // 多模态会话ID
-    // private static final boolean MOCK_SUBTITLE = true; // 临时开启字幕模拟 (改由按钮控制)
 
     // UI 组件
     private CustomDrawView customDrawView;
     private android.widget.ImageView ivStatusIcon;
     private com.narc.arclient.ui.ArToastView arToastView;
     // 注意：卡片通过 mBindingPair 访问，不用 findViewById
-    // Demo: 模拟字幕流（仅调试）
-    private Handler subtitleDemoHandler;
-    private boolean subtitleDemoRunning = false;
-    private static final boolean ENABLE_LOCAL_UI_SIMULATION = false;
-    private static final long LOCAL_UI_SIM_START_DELAY_MS = 1200L;
-    private static final long LOCAL_UI_SIM_RESULT_DELAY_MS = 2600L;
-    private final Handler localUiSimHandler = new Handler(Looper.getMainLooper());
-    private boolean localUiSimRunning = false;
 
     // AR 卡片组件
     private TextView tvCardTitle, tvCardContent;
@@ -148,6 +142,7 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
     private boolean isWaitingForQuestion = false;
     private static final long MULTI_AUTO_STOP_RECORD_MS = 15_000L;
     private final Handler multiRecordHandler = new Handler(Looper.getMainLooper());
+    private final Handler uiHandler = new Handler(Looper.getMainLooper());
     private final Runnable multiAutoStopRunnable = () -> {
         if (currentMode == Mode.MULTI && isMicEnabled) {
             Log.d(TAG, "多模态录音到达自动结束时长，触发停止");
@@ -156,35 +151,18 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
         }
     };
 
-    // ======= 本地模拟交互 =======
-    private static final long DEMO_PHOTO_DELAY_MS = 3000;
-    private static final long DEMO_MULTI_VOICE_DELAY_MS = 2000;
-    private final Handler demoHandler = new Handler(Looper.getMainLooper());
-    private Handler multiDemoHandler;
-    private final Handler backendDemoHandler = new Handler(Looper.getMainLooper());
-    private static final boolean ENABLE_FAKE_BACKEND_DEMO = true;
-    private static final long DEMO_TRIGGER_COOLDOWN_MS = 1200L;
-    private static final long DEMO_PHOTO_RESULT_MIN_DELAY_MS = 8000L;
-    private static final long DEMO_PHOTO_RESULT_MAX_DELAY_MS = 10000L;
     private static final long REMINDER_POPUP_DELAY_AFTER_CREATE_MS = 10000L;
     private static final long REMINDER_SNOOZE_DELAY_MS = 10 * 60 * 1000L;
-    // 全局字幕起始延迟：避免用户还未开口时字幕提前出现。
     private static final long MULTI_QA_SUBTITLE_START_DELAY_MS = 3500L;
-    private static final long SUBTITLE_DEMO_START_DELAY_MS = 3500L;
     private static final String REMINDER_PREFS_NAME = "local_reminder";
     private static final String REMINDER_KEY_DRUG = "drug";
     private static final String REMINDER_KEY_USAGE = "usage";
     private static final String REMINDER_KEY_TIME = "time";
     private static final String REMINDER_KEY_SOURCE = "source";
-    private boolean backendSmsSuccessNext = true;
-    private boolean multiQaDemoActive = false;
-    private boolean reminderDemoActive = false;
-    private boolean smsDemoActive = false;
     private ReminderCardData pendingReminderCardData;
+    private SmsTaskData pendingSmsTaskData;
     private final Handler localReminderHandler = new Handler(Looper.getMainLooper());
     private Runnable localReminderRunnable;
-    private DemoSegment activeMultiDemoSegment = DemoSegment.MULTI_MODAL_QA;
-    private DemoSegment multiDemoSelection = DemoSegment.MULTI_MODAL_QA;
 
     private static class ReminderCardData {
         final String drugName;
@@ -197,6 +175,35 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
             this.usage = usage;
             this.reminderTime = reminderTime;
             this.source = source;
+        }
+    }
+
+    private static class SmsTaskData {
+        final String smsTaskId;
+        final String requestId;
+        final String sessionId;
+        final String medicineId;
+        final String recipient;
+        final String templateId;
+        final Map<String, Object> templateVars;
+        final String consentVersion;
+
+        SmsTaskData(String smsTaskId,
+                String requestId,
+                String sessionId,
+                String medicineId,
+                String recipient,
+                String templateId,
+                Map<String, Object> templateVars,
+                String consentVersion) {
+            this.smsTaskId = smsTaskId;
+            this.requestId = requestId;
+            this.sessionId = sessionId;
+            this.medicineId = medicineId;
+            this.recipient = recipient;
+            this.templateId = templateId;
+            this.templateVars = templateVars;
+            this.consentVersion = consentVersion;
         }
     }
 
@@ -290,13 +297,9 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
     @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
         if (event != null && isDemoTriggerKey(keyCode) && event.getRepeatCount() == 0) {
-            if (ENABLE_FAKE_BACKEND_DEMO && currentMode == Mode.MULTI) {
-                showArToast("当前模式仅支持点按切换，触发请用悬停");
-                return true;
-            }
             boolean handled = tryTriggerCaptureViaHardware();
             if (handled) {
-                Log.d(TAG, "硬件按键触发演示，keyCode=" + keyCode + ", mode=" + currentMode.displayName);
+                Log.d(TAG, "硬件按键触发，keyCode=" + keyCode + ", mode=" + currentMode.displayName);
                 return true;
             }
         }
@@ -338,31 +341,6 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
 
             if (duration < TAP_TIMEOUT_MS && distance < TAP_SLOP_PX) {
                 if (isInteractiveCardVisible()) {
-                    return true;
-                }
-                if (ENABLE_FAKE_BACKEND_DEMO) {
-                    long now = System.currentTimeMillis();
-                    boolean isDoubleTap = lastTpTapUpAt > 0L && (now - lastTpTapUpAt) <= TP_DOUBLE_TAP_WINDOW_MS;
-                    if (isDoubleTap) {
-                        // 第二次点击：若有延迟切换任务则取消，然后触发录像控制
-                        if (pendingTpCycleFunctionRunnable != null) {
-                            tpTapHandler.removeCallbacks(pendingTpCycleFunctionRunnable);
-                            pendingTpCycleFunctionRunnable = null;
-                        }
-                        lastTpTapUpAt = 0L;
-                        toggleLocalVideoRecordingByHardware();
-                    } else {
-                        // 第一次点击：记录时间；MULTI 模式下保留单击切换能力
-                        lastTpTapUpAt = now;
-                        if (currentMode == Mode.MULTI) {
-                            if (pendingTpCycleFunctionRunnable != null) {
-                                tpTapHandler.removeCallbacks(pendingTpCycleFunctionRunnable);
-                            }
-                            pendingTpCycleFunctionRunnable = this::cycleMultiDemoSelectionByHardware;
-                            tpTapHandler.postDelayed(pendingTpCycleFunctionRunnable, TP_DOUBLE_TAP_WINDOW_MS);
-                        }
-                    }
-                    // 演示模式下禁用单击触发，避免与"双击录像控制"冲突。
                     return true;
                 }
                 boolean handled = tryTriggerCaptureViaHardware();
@@ -499,6 +477,17 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
                                     return;
                                 }
 
+                                SmsTaskData smsTaskData = parseSmsTaskDataFromJson(json);
+                                if (smsTaskData != null) {
+                                    setStatusMotion(StatusMotion.IDLE);
+                                    isModeLocked = true;
+                                    isVoiceCardShowing = true;
+                                    isWaitingForQuestion = false;
+                                    updateStatus("等待确认", R.drawable.ic_assistant);
+                                    showSmsConfirmCard(smsTaskData);
+                                    return;
+                                }
+
                                 // 优先使用data字段
                                 if (json.has("data")) {
                                     displayText = json.optString("data", result);
@@ -556,19 +545,11 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
 
             @Override
             public void onConnected() {
-                if (ENABLE_FAKE_BACKEND_DEMO && currentMode == Mode.SUBTITLE) {
-                    Log.d(TAG, "字幕模拟模式下忽略 WebSocket connected 状态覆盖");
-                    return;
-                }
                 updateStatus("已连接", R.drawable.ic_assistant);
             }
 
             @Override
             public void onDisconnected(String reason) {
-                if (ENABLE_FAKE_BACKEND_DEMO && currentMode == Mode.SUBTITLE) {
-                    Log.d(TAG, "字幕模拟模式下忽略 WebSocket disconnected 状态覆盖: " + reason);
-                    return;
-                }
                 updateStatus("已断开: " + reason, R.drawable.ic_assistant);
             }
         });
@@ -641,72 +622,23 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
     }
 
     private void initializeApp() {
-
-        // 简单模拟器判断
-        boolean isEmulator = android.os.Build.MODEL.contains("Emulator")
-                || android.os.Build.BRAND.startsWith("generic");
-
         View debugPanel = findViewById(R.id.debug_panel);
-        if (isEmulator) {
-            if (debugPanel != null)
-                debugPanel.setVisibility(View.VISIBLE);
-            updateStatus("模式：模拟器");
-            View btnMock = findViewById(R.id.btn_mock_data);
-            if (btnMock != null) {
-                btnMock.setOnClickListener(v -> {
-                    triggerFakeBackendDemo(System.currentTimeMillis());
-                });
-            }
-        } else {
-            if (debugPanel != null)
-                debugPanel.setVisibility(View.GONE);
-            // 延时启动摄像头，避免初始化冲突
-            new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                try {
-                    ICameraManager.init(this);
-                    updateStatus("系统就绪");
-                } catch (Exception e) {
-                    Log.e(TAG, "Camera Init Fail", e);
-                }
-            }, 1000);
-        }
+        if (debugPanel != null)
+            debugPanel.setVisibility(View.GONE);
 
-        if (ENABLE_LOCAL_UI_SIMULATION) {
-            localUiSimHandler.removeCallbacksAndMessages(null);
-            localUiSimHandler.postDelayed(this::runLocalUiSimulationOnce, LOCAL_UI_SIM_START_DELAY_MS);
-        }
+        // 延时启动摄像头，避免初始化冲突
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            try {
+                ICameraManager.init(this);
+                updateStatus("系统就绪");
+            } catch (Exception e) {
+                Log.e(TAG, "Camera Init Fail", e);
+            }
+        }, 1000);
 
         initLocalReminderSchedule();
         bindCardActionListeners();
 
-    }
-
-    private void runLocalUiSimulationOnce() {
-        if (localUiSimRunning) {
-            return;
-        }
-        localUiSimRunning = true;
-        isModeLocked = true;
-        isVoiceCardShowing = true;
-
-        showArToast("本地模拟：进入处理中");
-        updateStatus("处理中", R.drawable.ic_processing);
-        setStatusMotion(StatusMotion.PROCESSING);
-        startCardSequence();
-        positionCardTopCenter();
-        // startCardSequence 内部会更新一次状态文案，这里覆盖为验收所需口径。
-        updateStatus("处理中", R.drawable.ic_processing);
-
-        localUiSimHandler.postDelayed(() -> {
-            setStatusMotion(StatusMotion.IDLE);
-            setCardText("模拟结果", "这是本地模拟结果，用于验收 processing 与卡片等待动效。",
-                    getResources().getColor(R.color.status_success, null));
-            positionCardTopCenter();
-            updateStatus("系统就绪", R.drawable.ic_assistant);
-            showArToast("本地模拟完成");
-            localUiSimRunning = false;
-            isModeLocked = false;
-        }, LOCAL_UI_SIM_RESULT_DELAY_MS);
     }
 
     @Override
@@ -772,86 +704,6 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
 
         // 2. 震动反馈
         triggerVibration();
-
-        // 实时字幕模拟：麦克风开关直接驱动本地字幕流，不依赖后端连接
-        if (ENABLE_FAKE_BACKEND_DEMO && currentMode == Mode.SUBTITLE) {
-            if (isMicEnabled) {
-                updateStatus("实时字幕通道已连接", R.drawable.ic_microphone_active);
-                setStatusMotion(StatusMotion.LISTENING);
-                showArToast("开始接收语音字幕");
-                startSubtitleMockDemo();
-            } else {
-                stopSubtitleMockDemo();
-                setStatusMotion(StatusMotion.IDLE);
-                updateStatus("系统就绪", R.drawable.ic_assistant);
-                showArToast("字幕通道已关闭");
-            }
-            return;
-        }
-
-        // 多模态模拟统一链路：拍照后自动开麦 -> 字幕 -> 处理态 -> 按意图返回不同卡片
-        if (ENABLE_FAKE_BACKEND_DEMO && currentMode == Mode.MULTI
-                && (multiQaDemoActive || reminderDemoActive || smsDemoActive)) {
-            if (isMicEnabled) {
-                if (activeMultiDemoSegment == DemoSegment.REMINDER_FLOW) {
-                    updateStatus("正在聆听提醒需求", R.drawable.ic_microphone_active);
-                    playReminderQuestionSubtitleWithPauses();
-                } else if (activeMultiDemoSegment == DemoSegment.SMS_STATUS) {
-                    updateStatus("正在聆听短信需求", R.drawable.ic_microphone_active);
-                    playSmsQuestionSubtitleWithPauses();
-                } else {
-                    updateStatus("正在聆听提问", R.drawable.ic_microphone_active);
-                    showArToast("请开始提问，完成后关闭麦克风");
-                    playMultiQaQuestionSubtitleWithPauses();
-                }
-                setStatusMotion(StatusMotion.LISTENING);
-            } else {
-                backendDemoHandler.removeCallbacksAndMessages(null);
-                mBindingPair.updateView(binding -> {
-                    if (binding.subtitleView != null) {
-                        binding.subtitleView.clearImmediate();
-                    }
-                    return null;
-                });
-
-                updateStatus("问题分析中", R.drawable.ic_processing);
-                setStatusMotion(StatusMotion.PROCESSING);
-                isVoiceCardShowing = true;
-                startCardSequence();
-                positionCardTopCenter();
-                setCardText("分析中", "正在结合图像与语音意图...",
-                        getResources().getColor(R.color.primary_teal_light, null), false);
-
-                long waitMs = DEMO_PHOTO_RESULT_MIN_DELAY_MS
-                        + (long) (Math.random()
-                                * (DEMO_PHOTO_RESULT_MAX_DELAY_MS - DEMO_PHOTO_RESULT_MIN_DELAY_MS + 1));
-
-                backendDemoHandler.postDelayed(() -> {
-                    setStatusMotion(StatusMotion.IDLE);
-                    if (activeMultiDemoSegment == DemoSegment.REMINDER_FLOW) {
-                        updateStatus("等待确认", R.drawable.ic_assistant);
-                        showReminderConfirmCard();
-                    } else if (activeMultiDemoSegment == DemoSegment.SMS_STATUS) {
-                        updateStatus("等待确认", R.drawable.ic_assistant);
-                        showSmsConfirmCard();
-                    } else {
-                        setCardText("药品有效期分析", "生产日期：2025年7月21日\n有效期至：2028年7月20日\n结论：当前仍在有效期内",
-                                getResources().getColor(R.color.status_success, null));
-                        positionCardTopCenter();
-                        updateStatus("问答完成", R.drawable.ic_assistant);
-                        showArToast("问答结果已返回");
-                        isModeLocked = false;
-                    }
-
-                    isWaitingForQuestion = false;
-                    multiQaDemoActive = false;
-                    reminderDemoActive = false;
-                    smsDemoActive = false;
-                    activeMultiDemoSegment = DemoSegment.MULTI_MODAL_QA;
-                }, waitMs);
-            }
-            return;
-        }
 
         // 3. 开启或停止录音推流
         if (isMicEnabled) {
@@ -932,7 +784,7 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
     }
 
     private void postMultiQaSubtitleAt(long delayMs, String text, boolean isFinal) {
-        backendDemoHandler.postDelayed(() -> updateSubtitle(text, isFinal), delayMs);
+        uiHandler.postDelayed(() -> updateSubtitle(text, isFinal), delayMs);
     }
 
     /**
@@ -993,9 +845,6 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
         String statusMsg = "已切换到：" + newMode.displayName;
         updateStatus(statusMsg, R.drawable.ic_assistant);
         showArToast(statusMsg);
-        if (ENABLE_FAKE_BACKEND_DEMO && newMode == Mode.MULTI) {
-            showArToast("点按切换功能，触发仅支持悬停");
-        }
         if (ttsManager != null) {
             ttsManager.speakWithSound(newMode.displayName + "模式");
         }
@@ -1196,187 +1045,14 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
         });
     }
 
-    // ======= 调试：字幕模拟流 =======
-    private void startSubtitleMockDemo() {
-        if (subtitleDemoRunning)
-            return;
-        subtitleDemoRunning = true;
-        if (subtitleDemoHandler == null) {
-            subtitleDemoHandler = new Handler(Looper.getMainLooper());
-        }
-
-        // 开始前停顿，避免字幕早于用户说话出现。
-        long baseDelay = SUBTITLE_DEMO_START_DELAY_MS;
-
-        postSubtitleAt(baseDelay + 0, "妈", false);
-        postSubtitleAt(baseDelay + 300, "妈，", false);
-        postSubtitleAt(baseDelay + 600, "妈，这是", false);
-        postSubtitleAt(baseDelay + 900, "妈，这是我", false);
-        postSubtitleAt(baseDelay + 1200, "妈，这是我今天", false);
-        postSubtitleAt(baseDelay + 1500, "妈，这是我今天下午", false);
-        postSubtitleAt(baseDelay + 1800, "妈，这是我今天下午给你带的", false);
-        postSubtitleAt(baseDelay + 2300, "妈，这是我今天下午给你带的感冒药，", false);
-        postSubtitleAt(baseDelay + 2800, "妈，这是我今天下午给你带的感冒药，一天", false);
-        postSubtitleAt(baseDelay + 3300, "妈，这是我今天下午给你带的感冒药，一天吃三次", false);
-        postSubtitleAt(baseDelay + 3800, "妈，这是我今天下午给你带的感冒药，一天吃三次就行，", false);
-        postSubtitleAt(baseDelay + 4400, "妈，这是我今天下午给你带的感冒药，一天吃三次就行，晚上记得", false);
-        postSubtitleAt(baseDelay + 5000, "妈，这是我今天下午给你带的感冒药，一天吃三次就行，晚上记得早点休息", true);
-
-        // 单次演示：播放一遍后停止，不再循环
-        subtitleDemoHandler.postDelayed(() -> {
-            // 使用 mBindingPair 清除字幕
-            mBindingPair.updateView(binding -> {
-                if (binding.subtitleView != null)
-                    binding.subtitleView.clearImmediate();
-                return null;
-            });
-            subtitleDemoRunning = false;
-        }, baseDelay + 11000);
-    }
-
-    private void postSubtitleAt(long delayMs, String text, boolean isFinal) {
-        if (subtitleDemoHandler == null)
-            return;
-        subtitleDemoHandler.postDelayed(() -> updateSubtitle(text, isFinal), delayMs);
-    }
-
-    private void stopSubtitleMockDemo() {
-        subtitleDemoRunning = false;
-        if (subtitleDemoHandler != null) {
-            subtitleDemoHandler.removeCallbacksAndMessages(null);
-        }
-        // 使用 mBindingPair 清除字幕
-        mBindingPair.updateView(binding -> {
-            if (binding.subtitleView != null)
-                binding.subtitleView.clearImmediate();
-            return null;
-        });
-    }
-
-    private void simulatePhotoRecognitionDemo() {
-        setCardText("识别中", "正在分析图片…", getResources().getColor(R.color.primary_teal_light, null));
-        demoHandler.postDelayed(() -> {
-            String demoResult = "药品名称：感冒灵颗粒\n"
-                    + "品牌：999\n"
-                    + "规格：10g×9袋\n"
-                    + "功能：解热镇痛\n"
-                    + "主治：感冒引起的头痛、发热、鼻塞、流涕\n"
-                    + "用法用量：开水冲服，一次1袋，一日3次";
-            setStatusMotion(StatusMotion.IDLE);
-            setCardText("药品信息", demoResult, getResources().getColor(R.color.status_success, null));
-            Log.d(TAG, "🎬 [拍照模拟] 已输出识别结果");
-        }, DEMO_PHOTO_DELAY_MS);
-    }
-
-    // 多模态问答模拟 - 第一步：拍照识别生产日期
-    private void simulateMultiModalPhotoDemo() {
-        setCardText("识别中", "正在分析图片…", getResources().getColor(R.color.primary_teal_light, null));
-        demoHandler.postDelayed(() -> {
-            isWaitingForQuestion = true;
-            String promptMsg = "拍照完成";
-            setStatusMotion(StatusMotion.IDLE);
-            closeCardImmediately();
-            isVoiceCardShowing = false;
-            updateStatus(promptMsg, R.drawable.ic_microphone_active);
-            showArToast(promptMsg);
-
-            // 自动开启麦克风录音
-            new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                Log.d(TAG, "🎤 多模态模式：自动触发录音");
-                handleMicToggle(true);
-            }, 500);
-
-            Log.d(TAG, "🎬 [多模态拍照模拟] 照片已识别，等待用户提问");
-        }, DEMO_PHOTO_DELAY_MS);
-    }
-
-    // 多模态问答模拟 - 第二步：语音问答
-    private void simulateMultiModalVoiceDemo() {
-        if (multiDemoHandler == null) {
-            multiDemoHandler = new Handler(Looper.getMainLooper());
-        }
-
-        // 标记正在等待用户关闭麦克风，允许触发回答显示
-        isWaitingForQuestion = true;
-
-        // 模拟用户提问的字幕 - 逐字显示，非均匀停顿
-        setCardText("正在聆听", "识别您的语音中...", getResources().getColor(R.color.primary_teal_light, null));
-
-        // 用户提问逐字显示 - 使用不规则间隔，更像真实语音识别
-        // 1秒后开始显示字幕
-        multiDemoHandler.postDelayed(() -> updateSubtitle("请", false), 2500);
-        multiDemoHandler.postDelayed(() -> updateSubtitle("请问", false), 2750); // 250ms
-        multiDemoHandler.postDelayed(() -> updateSubtitle("请问这", false), 3080); // 330ms
-        multiDemoHandler.postDelayed(() -> updateSubtitle("请问这个", false), 3280); // 200ms
-        multiDemoHandler.postDelayed(() -> updateSubtitle("请问这个药", false), 3680); // 400ms
-        multiDemoHandler.postDelayed(() -> updateSubtitle("请问这个药过", false), 3880); // 200ms
-        multiDemoHandler.postDelayed(() -> updateSubtitle("请问这个药过期", false), 4280); // 400ms
-        multiDemoHandler.postDelayed(() -> updateSubtitle("请问这个药过期了", false), 4480); // 200ms
-        multiDemoHandler.postDelayed(() -> updateSubtitle("请问这个药过期了吗", false), 4880); // 400ms
-        multiDemoHandler.postDelayed(() -> updateSubtitle("请问这个药过期了吗？", true), 5080); // 200ms
-
-        // 问题显示完成后3秒自动停止录音
-        multiDemoHandler.postDelayed(() -> {
-            Log.d(TAG, "🎬 [多模态模拟] 3秒停顿后自动关闭麦克风");
-            handleMicToggle(false);
-        }, 8080); // 5080ms + 3000ms = 8080ms
-
-        // 标记已接收用户提问，等待用户关闭麦克风
-
-        Log.d(TAG, "🎬 [多模态语音模拟] 已显示用户提问，等待用户关闭麦克风");
-    }
-
-    // 多模态问答模拟 - 第三步：显示回答（当用户关闭麦克风时调用）
-    private void simulateMultiModalAnswerDemo() {
-        if (multiDemoHandler == null) {
-            multiDemoHandler = new Handler(Looper.getMainLooper());
-        }
-
-        // 清除字幕
-        mBindingPair.updateView(binding -> {
-            if (binding.subtitleView != null)
-                binding.subtitleView.clearImmediate();
-            return null;
-        });
-
-        // 显示"分析中"过渡状态
-        setCardText("分析中", "正在查询药品信息...", getResources().getColor(R.color.primary_teal_light, null));
-        positionCardTopCenter();
-
-        // 15秒后显示完整回答
-        multiDemoHandler.postDelayed(() -> {
-            String answer = "根据您刚才拍摄的栀子金花丸生产日期图片：\n"
-                    + "生产日期：2025年7月21日\n"
-                    + "有效期至：2028年7月20日\n"
-                    + "今天是2026年1月30日，该药品还在有效期内，距离过期还有1年多时间。\n"
-                    + "所以这个药没有过期，可以安全使用。";
-
-            setStatusMotion(StatusMotion.IDLE);
-            setCardText("药品有效期分析", answer, getResources().getColor(R.color.status_success, null));
-            positionCardTopCenter();
-
-            // 关闭等待问题状态
-            isWaitingForQuestion = false;
-
-            Log.d(TAG, "🎬 [多模态语音模拟] 已输出问答结果");
-        }, 8000); // 8秒后显示回答
-    }
-
+    // ======= 生命周期资源清理 =======
     @Override
     protected void onDestroy() {
         currentStatusMotion = StatusMotion.IDLE;
         setStatusMotion(StatusMotion.IDLE);
         multiRecordHandler.removeCallbacks(multiAutoStopRunnable);
-        if (subtitleDemoHandler != null) {
-            subtitleDemoHandler.removeCallbacksAndMessages(null);
-        }
-        if (multiDemoHandler != null) {
-            multiDemoHandler.removeCallbacksAndMessages(null);
-        }
-        subtitleDemoRunning = false;
 
         videoStopHandler.removeCallbacksAndMessages(null);
-        localUiSimHandler.removeCallbacksAndMessages(null);
         localReminderHandler.removeCallbacksAndMessages(null);
         if (micVisibilityAnimator != null) {
             micVisibilityAnimator.cancel();
@@ -1674,10 +1350,6 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
         long now = System.currentTimeMillis();
         Log.d(TAG, "硬件触发检查开始");
 
-        if (ENABLE_FAKE_BACKEND_DEMO) {
-            return triggerFakeBackendDemo(now);
-        }
-
         // ============ 模式检查 ============
         if (currentMode == Mode.SUBTITLE) {
             updateStatus("当前为实时字幕模式，无法拍照");
@@ -1714,227 +1386,17 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
         return true;
     }
 
-    private boolean triggerFakeBackendDemo(long now) {
-        if (now - lastTriggerTime <= DEMO_TRIGGER_COOLDOWN_MS) {
-            showArToast("演示触发过于频繁");
-            return false;
-        }
-
-        lastTriggerTime = now;
-        stopSubtitleMockDemo();
-        backendDemoHandler.removeCallbacksAndMessages(null);
-        closeCardImmediately();
-        isAnalyzing = false;
-        isModeLocked = false;
-        isWaitingForQuestion = false;
-        multiQaDemoActive = false;
-        reminderDemoActive = false;
-        smsDemoActive = false;
-        activeMultiDemoSegment = DemoSegment.MULTI_MODAL_QA;
-        setStatusMotion(StatusMotion.IDLE);
-
-        DemoSegment segment;
-        if (currentMode == Mode.PHOTO) {
-            segment = DemoSegment.PHOTO_RECOGNITION;
-        } else if (currentMode == Mode.SUBTITLE) {
-            segment = DemoSegment.REALTIME_SUBTITLE;
-        } else {
-            segment = multiDemoSelection;
-        }
-
-        switch (segment) {
-            case PHOTO_RECOGNITION:
-                playDemoPhotoRecognition();
-                break;
-            case REALTIME_SUBTITLE:
-                playDemoRealtimeSubtitle();
-                break;
-            case MULTI_MODAL_QA:
-            case REMINDER_FLOW:
-            case SMS_STATUS:
-                startDemoMultiModalFlow(segment);
-                break;
-            default:
-                return false;
-        }
-
-        return true;
-    }
-
-    private void cycleMultiDemoSelectionByHardware() {
-        if (multiDemoSelection == DemoSegment.MULTI_MODAL_QA) {
-            multiDemoSelection = DemoSegment.REMINDER_FLOW;
-        } else if (multiDemoSelection == DemoSegment.REMINDER_FLOW) {
-            multiDemoSelection = DemoSegment.SMS_STATUS;
-        } else {
-            multiDemoSelection = DemoSegment.MULTI_MODAL_QA;
-        }
-
-        String selectionLabel;
-        if (multiDemoSelection == DemoSegment.MULTI_MODAL_QA) {
-            selectionLabel = "拍照追问";
-        } else if (multiDemoSelection == DemoSegment.REMINDER_FLOW) {
-            selectionLabel = "智能提醒";
-        } else {
-            selectionLabel = "短信确认";
-        }
-
-        updateStatus("已切换到：" + selectionLabel, R.drawable.ic_assistant);
-        showArToast("已切换：" + selectionLabel + "（点按切换）");
-        Log.d(TAG, "点按切换多模态演示: " + selectionLabel);
-    }
-
-    private void playDemoPhotoRecognition() {
-        isAnalyzing = true;
-        isModeLocked = true;
-        startCardSequence();
-        positionCardTopCenter();
-        updateStatus("图像已上传，等待后端识别", R.drawable.ic_processing);
-        showArToast("已进入识别队列");
-
-        long waitMs = 10_000L;
-
-        backendDemoHandler.postDelayed(() -> {
-            String displayText = buildPhotoInfoText(createDemoPhotoResultJson(), "识别结果为空");
-            setStatusMotion(StatusMotion.IDLE);
-            setCardText("药品信息", displayText, getResources().getColor(R.color.status_success, null));
-            positionCardTopCenter();
-            updateStatus("识别完成", R.drawable.ic_assistant);
-            showArToast("识别结果已返回");
-        }, waitMs);
-    }
-
-    private org.json.JSONObject createDemoPhotoResultJson() {
-        org.json.JSONObject json = new org.json.JSONObject();
-        try {
-            json.put("drug_name", "感冒灵颗粒");
-            json.put("brand", "999");
-            json.put("specification", "10g×9袋");
-            json.put("function", "解热镇痛");
-            json.put("indications", "感冒引起的头痛、发热、鼻塞、流涕");
-            json.put("usage", "开水冲服，一次1袋，一日3次");
-        } catch (org.json.JSONException ignored) {
-        }
-        return json;
-    }
-
-    private String buildPhotoInfoText(org.json.JSONObject json, String fallback) {
-        if (json == null) {
-            return fallback;
-        }
-
-        if (json.has("data")) {
-            return json.optString("data", fallback);
-        }
-
-        StringBuilder sb = new StringBuilder();
-        if (json.has("drug_name")) {
-            sb.append("药品名称：").append(json.optString("drug_name", "未知")).append("\n");
-        }
-        if (json.has("brand")) {
-            sb.append("品牌：").append(json.optString("brand", "未知")).append("\n");
-        }
-        if (json.has("specification")) {
-            sb.append("规格：").append(json.optString("specification", "未知")).append("\n");
-        }
-        if (json.has("function")) {
-            sb.append("功能：").append(json.optString("function", "未知")).append("\n");
-        }
-        if (json.has("indications")) {
-            sb.append("主治：").append(json.optString("indications", "未知")).append("\n");
-        }
-        if (json.has("usage")) {
-            sb.append("用法用量：").append(json.optString("usage", "未知"));
-        }
-
-        if (sb.length() > 0) {
-            return sb.toString();
-        }
-        return json.optString("answer", fallback);
-    }
-
-    private void playDemoRealtimeSubtitle() {
-        updateStatus("实时字幕通道已连接", R.drawable.ic_microphone_active);
-        showArToast("开始接收语音字幕");
-
-        String[] frames = new String[] {
-                "妈", "妈，这", "妈，这个药", "妈，这个药医生说", "妈，这个药医生说了，要饭后吃。",
-                "一次", "一次吃两粒", "一次吃两粒，别忘了喝温水。"
-        };
-
-        long start = SUBTITLE_DEMO_START_DELAY_MS;
-        long step = 360L;
-        for (int i = 0; i < frames.length; i++) {
-            final boolean isFinal = (i == frames.length - 1);
-            final String frame = frames[i];
-            backendDemoHandler.postDelayed(() -> updateSubtitle(frame, isFinal), start + i * step);
-        }
-
-        backendDemoHandler.postDelayed(() -> showArToast("字幕输出完成"), start + frames.length * step + 200L);
-    }
-
-    private void playDemoMultiModalQa() {
-        startDemoMultiModalFlow(DemoSegment.MULTI_MODAL_QA);
-    }
-
-    private void startDemoMultiModalFlow(DemoSegment segment) {
-        isAnalyzing = false;
-        updateStatus("多模态会话建立中", R.drawable.ic_processing);
-        setStatusMotion(StatusMotion.PROCESSING);
-        showArToast("拍照完成，正在自动开启录音");
-
-        activeMultiDemoSegment = segment;
-        multiQaDemoActive = segment == DemoSegment.MULTI_MODAL_QA;
-        reminderDemoActive = segment == DemoSegment.REMINDER_FLOW;
-        smsDemoActive = segment == DemoSegment.SMS_STATUS;
-
-        backendDemoHandler.postDelayed(() -> {
-            setStatusMotion(StatusMotion.IDLE);
-            isWaitingForQuestion = true;
-            isModeLocked = true;
-            if (segment == DemoSegment.REMINDER_FLOW) {
-                updateStatus("正在聆听提醒需求", R.drawable.ic_microphone_active);
-            } else if (segment == DemoSegment.SMS_STATUS) {
-                updateStatus("正在聆听短信需求", R.drawable.ic_microphone_active);
-            } else {
-                updateStatus("正在聆听提问", R.drawable.ic_microphone_active);
-            }
-            handleMicToggle(true);
-        }, 800L);
-    }
-
-    private void playDemoReminderFlow() {
-        startDemoMultiModalFlow(DemoSegment.REMINDER_FLOW);
-    }
-
-    private void playReminderQuestionSubtitleWithPauses() {
-        long baseDelay = MULTI_QA_SUBTITLE_START_DELAY_MS;
-        postMultiQaSubtitleAt(baseDelay + 0L, "请", false);
-        postMultiQaSubtitleAt(baseDelay + 220L, "请你", false);
-        postMultiQaSubtitleAt(baseDelay + 520L, "请你帮", false);
-        postMultiQaSubtitleAt(baseDelay + 820L, "请你帮我", false);
-        postMultiQaSubtitleAt(baseDelay + 1180L, "请你帮我设", false);
-        postMultiQaSubtitleAt(baseDelay + 1480L, "请你帮我设置", false);
-        postMultiQaSubtitleAt(baseDelay + 1880L, "请你帮我设置一下", false);
-        postMultiQaSubtitleAt(baseDelay + 2320L, "请你帮我设置一下用药", false);
-        postMultiQaSubtitleAt(baseDelay + 2760L, "请你帮我设置一下用药提醒", true);
-
-        backendDemoHandler.postDelayed(() -> {
-            if (reminderDemoActive && isMicEnabled) {
-                handleMicToggle(false);
-            }
-        }, baseDelay + 4300L);
-    }
-
-    private void showReminderConfirmCard() {
-        showReminderConfirmCard(buildDefaultReminderCardData());
-    }
-
     private void showReminderConfirmCard(ReminderCardData rawData) {
         ReminderCardData data = normalizeReminderCardData(rawData);
+        if (data == null) {
+            showArToast("提醒数据不完整，请重试");
+            updateStatus("提醒数据不完整", R.drawable.ic_assistant);
+            return;
+        }
         pendingReminderCardData = data;
         String primaryLine = "药品：" + data.drugName + "\n服用：" + data.usage;
-        String metaLine = "信息来源：" + data.source + "｜提醒时间 " + data.reminderTime;
+        String sourceText = isBlank(data.source) ? "未提供" : data.source;
+        String metaLine = "信息来源：" + sourceText + "｜提醒时间 " + data.reminderTime;
 
         showInteractiveConfirmCard("确认创建用药提醒",
                 primaryLine,
@@ -1948,24 +1410,19 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
         showArToast("已生成提醒方案，请确认是否创建");
     }
 
-    private ReminderCardData buildDefaultReminderCardData() {
-        return new ReminderCardData(
-                "999感冒灵颗粒",
-                "一次1袋，一日3次",
-                "13:15",
-                "照片识别");
-    }
-
     private ReminderCardData normalizeReminderCardData(ReminderCardData raw) {
-        ReminderCardData fallback = buildDefaultReminderCardData();
         if (raw == null) {
-            return fallback;
+            return null;
         }
 
-        String drugName = firstNonBlank(raw.drugName, fallback.drugName);
-        String usage = firstNonBlank(raw.usage, fallback.usage);
-        String reminderTime = firstNonBlank(raw.reminderTime, fallback.reminderTime);
-        String source = firstNonBlank(raw.source, fallback.source);
+        String drugName = firstNonBlank(raw.drugName);
+        String usage = firstNonBlank(raw.usage);
+        String reminderTime = firstNonBlank(raw.reminderTime);
+        String source = firstNonBlank(raw.source);
+
+        if (isBlank(drugName) || isBlank(usage) || isBlank(reminderTime)) {
+            return null;
+        }
 
         source = normalizeSingleSourceLabel(source);
         return new ReminderCardData(drugName, usage, reminderTime, source);
@@ -1978,19 +1435,24 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
 
         String intent = json.optString("intent", "");
         boolean reminderIntent = intent.contains("提醒") || intent.toLowerCase(Locale.ROOT).contains("remind")
-                || json.has("reminder") || json.has("reminder_time") || json.has("reminderTime");
+                || json.has("reminder") || json.has("reminder_time") || json.has("reminderTime")
+                || json.has("need_reminder_prompt") || json.has("reminder_candidate") || json.has("drug_info");
         if (!reminderIntent) {
             return null;
         }
 
         org.json.JSONObject reminderObj = json.optJSONObject("reminder");
         org.json.JSONObject medicationObj = json.optJSONObject("medication");
+        org.json.JSONObject drugInfoObj = json.optJSONObject("drug_info");
+        org.json.JSONObject candidateObj = json.optJSONObject("reminder_candidate");
 
         String drugName = firstNonBlank(
                 json.optString("drug_name", null),
                 json.optString("drugName", null),
                 reminderObj != null ? reminderObj.optString("drug_name", null) : null,
                 reminderObj != null ? reminderObj.optString("drugName", null) : null,
+                drugInfoObj != null ? drugInfoObj.optString("drug_name", null) : null,
+                drugInfoObj != null ? drugInfoObj.optString("name", null) : null,
                 medicationObj != null ? medicationObj.optString("name", null) : null);
 
         String usage = firstNonBlank(
@@ -2000,6 +1462,7 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
                 reminderObj != null ? reminderObj.optString("usage", null) : null,
                 reminderObj != null ? reminderObj.optString("dosage", null) : null,
                 reminderObj != null ? reminderObj.optString("dose", null) : null,
+                drugInfoObj != null ? drugInfoObj.optString("usage", null) : null,
                 medicationObj != null ? medicationObj.optString("usage", null) : null);
 
         String reminderTime = firstNonBlank(
@@ -2008,23 +1471,138 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
                 json.optString("time", null),
                 reminderObj != null ? reminderObj.optString("reminder_time", null) : null,
                 reminderObj != null ? reminderObj.optString("reminderTime", null) : null,
-                reminderObj != null ? reminderObj.optString("time", null) : null);
+                reminderObj != null ? reminderObj.optString("time", null) : null,
+                candidateObj != null ? candidateObj.optString("time", null) : null,
+                candidateObj != null ? candidateObj.optString("reminder_time", null) : null);
 
         String source = firstNonBlank(
                 json.optString("source", null),
                 json.optString("data_source", null),
                 reminderObj != null ? reminderObj.optString("source", null) : null,
-                reminderObj != null ? reminderObj.optString("data_source", null) : null);
+                reminderObj != null ? reminderObj.optString("data_source", null) : null,
+                drugInfoObj != null ? drugInfoObj.optString("source", null) : null);
 
-        if (isBlank(drugName) && isBlank(usage) && isBlank(reminderTime)) {
+        if (isBlank(drugName) || isBlank(usage) || isBlank(reminderTime)) {
             return null;
         }
         return new ReminderCardData(drugName, usage, reminderTime, source);
     }
 
+    private SmsTaskData parseSmsTaskDataFromJson(org.json.JSONObject json) {
+        if (json == null) {
+            return null;
+        }
+
+        String intent = json.optString("intent", "");
+        boolean smsIntent = intent.contains("短信")
+                || intent.toLowerCase(Locale.ROOT).contains("sms")
+                || json.has("sms")
+                || json.has("sms_task")
+                || json.has("recipient")
+                || json.has("template_id");
+        if (!smsIntent) {
+            return null;
+        }
+
+        org.json.JSONObject smsObj = json.optJSONObject("sms");
+        if (smsObj == null) {
+            smsObj = json.optJSONObject("sms_task");
+        }
+
+        String smsTaskId = firstNonBlank(
+                json.optString("sms_task_id", null),
+                json.optString("smsTaskId", null),
+                smsObj != null ? smsObj.optString("sms_task_id", null) : null,
+                smsObj != null ? smsObj.optString("smsTaskId", null) : null,
+                UUID.randomUUID().toString());
+
+        String requestId = firstNonBlank(
+                json.optString("request_id", null),
+                json.optString("requestId", null),
+                smsObj != null ? smsObj.optString("request_id", null) : null,
+                smsObj != null ? smsObj.optString("requestId", null) : null,
+                UUID.randomUUID().toString());
+
+        String sessionId = firstNonBlank(
+                json.optString("session_id", null),
+                json.optString("sessionId", null),
+                currentSectionId,
+                smsObj != null ? smsObj.optString("session_id", null) : null,
+                smsObj != null ? smsObj.optString("sessionId", null) : null);
+
+        String medicineId = firstNonBlank(
+                json.optString("medicine_id", null),
+                json.optString("medicineId", null),
+                smsObj != null ? smsObj.optString("medicine_id", null) : null,
+                smsObj != null ? smsObj.optString("medicineId", null) : null);
+
+        String recipient = firstNonBlank(
+                json.optString("recipient", null),
+                smsObj != null ? smsObj.optString("recipient", null) : null);
+
+        String templateId = firstNonBlank(
+                json.optString("template_id", null),
+                json.optString("templateId", null),
+                smsObj != null ? smsObj.optString("template_id", null) : null,
+                smsObj != null ? smsObj.optString("templateId", null) : null);
+
+        org.json.JSONObject varsObj = null;
+        if (json.has("template_vars")) {
+            varsObj = json.optJSONObject("template_vars");
+        }
+        if (varsObj == null && json.has("templateVars")) {
+            varsObj = json.optJSONObject("templateVars");
+        }
+        if (varsObj == null && smsObj != null && smsObj.has("template_vars")) {
+            varsObj = smsObj.optJSONObject("template_vars");
+        }
+        if (varsObj == null && smsObj != null && smsObj.has("templateVars")) {
+            varsObj = smsObj.optJSONObject("templateVars");
+        }
+
+        Map<String, Object> templateVars = new HashMap<>();
+        if (varsObj != null) {
+            java.util.Iterator<String> keys = varsObj.keys();
+            while (keys.hasNext()) {
+                String key = keys.next();
+                templateVars.put(key, varsObj.opt(key));
+            }
+        }
+        if (templateVars.isEmpty()) {
+            templateVars.put("drug_name",
+                    firstNonBlank(json.optString("drug_name", null), json.optString("drugName", null)));
+        }
+
+        String smsMessage = firstNonBlank(
+                getTemplateVarAsString(templateVars, "message"),
+                getTemplateVarAsString(templateVars, "content"),
+                json.optString("message", null),
+                json.optString("content", null),
+                smsObj != null ? smsObj.optString("message", null) : null,
+                smsObj != null ? smsObj.optString("content", null) : null);
+        if (!isBlank(smsMessage)) {
+            templateVars.put("message", smsMessage);
+        }
+
+        // 严格模式：关键字段不完整时不再回填示例数据。
+        if (isBlank(recipient) || isBlank(templateId) || isBlank(smsMessage)) {
+            return null;
+        }
+
+        String consentVersion = firstNonBlank(
+                json.optString("consent_version", null),
+                json.optString("consentVersion", null),
+                smsObj != null ? smsObj.optString("consent_version", null) : null,
+                smsObj != null ? smsObj.optString("consentVersion", null) : null,
+                "v1");
+
+        return new SmsTaskData(smsTaskId, requestId, sessionId, medicineId, recipient, templateId, templateVars,
+                consentVersion);
+    }
+
     private String normalizeSingleSourceLabel(String source) {
         if (isBlank(source)) {
-            return "照片识别";
+            return null;
         }
 
         String normalized = source.trim();
@@ -2036,7 +1614,7 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
                 break;
             }
         }
-        return normalized.isEmpty() ? "照片识别" : normalized;
+        return normalized.isEmpty() ? null : normalized;
     }
 
     private boolean isBlank(String value) {
@@ -2055,17 +1633,26 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
         return null;
     }
 
-    private void playDemoSmsStatus() {
-        startDemoMultiModalFlow(DemoSegment.SMS_STATUS);
-    }
-
-    private void showSmsConfirmCard() {
+    private void showSmsConfirmCard(SmsTaskData smsTaskData) {
+        if (smsTaskData == null) {
+            showArToast("短信数据不完整，请重试");
+            updateStatus("短信数据不完整", R.drawable.ic_assistant);
+            return;
+        }
+        SmsTaskData data = smsTaskData;
+        pendingSmsTaskData = data;
         isVoiceCardShowing = true;
         isModeLocked = true;
         clearCardActions();
+        String smsText = firstNonBlank(getTemplateVarAsString(data.templateVars, "message"));
+        if (isBlank(smsText) || isBlank(data.recipient)) {
+            showArToast("短信数据不完整，请重试");
+            updateStatus("短信数据不完整", R.drawable.ic_assistant);
+            return;
+        }
         showInteractiveConfirmCard("发送短信确认",
-                "收件人：儿子（18983810096）",
-                "内容：999感冒灵颗粒快吃完了，帮我买一点回来",
+                "收件人：" + data.recipient,
+                "内容：" + smsText,
                 "取消",
                 this::onSmsSendCancelled,
                 "发送",
@@ -2075,27 +1662,105 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
         showArToast("已生成短信内容，请确认发送");
     }
 
-    private void playSmsQuestionSubtitleWithPauses() {
-        long baseDelay = MULTI_QA_SUBTITLE_START_DELAY_MS;
-        // 前半部分 360ms，后半部分 600ms，逐渐放慢。
-        String[] frames = new String[] {
-                "告", "告诉", "告诉我", "告诉我儿子", "告诉我儿子，这个药",
-                "告诉我儿子，这个药快吃完了", "告诉我儿子，这个药快吃完了，让他帮我买", "告诉我儿子，这个药快吃完了，让他帮我买一点回来"
-        };
-        long[] stepArray = new long[] { 360, 360, 360, 360, 600, 800, 800, 800 };
-        long accumulatedTime = baseDelay;
-        for (int i = 0; i < frames.length; i++) {
-            final boolean isFinal = (i == frames.length - 1);
-            final String frame = frames[i];
-            postMultiQaSubtitleAt(accumulatedTime, frame, isFinal);
-            accumulatedTime += stepArray[i];
+    private Map<String, Object> buildReminderSyncRequest(ReminderCardData reminderData) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("request_id", UUID.randomUUID().toString());
+        body.put("session_id", firstNonBlank(currentSectionId, UUID.randomUUID().toString()));
+        body.put("medicine_id", reminderData.drugName);
+
+        Map<String, Object> drugInfo = new HashMap<>();
+        drugInfo.put("drug_name", reminderData.drugName);
+        drugInfo.put("usage", reminderData.usage);
+        if (!isBlank(reminderData.source)) {
+            drugInfo.put("source", reminderData.source);
         }
 
-        backendDemoHandler.postDelayed(() -> {
-            if (smsDemoActive && isMicEnabled) {
-                handleMicToggle(false);
+        Map<String, Object> reminderCandidate = new HashMap<>();
+        reminderCandidate.put("time", reminderData.reminderTime);
+        reminderCandidate.put("rule", "daily");
+
+        body.put("drug_info", drugInfo);
+        body.put("need_reminder_prompt", true);
+        body.put("reminder_prompt", "请确认是否创建用药提醒");
+        body.put("reminder_candidate", reminderCandidate);
+        return body;
+    }
+
+    private String getTemplateVarAsString(Map<String, Object> vars, String key) {
+        if (vars == null || key == null) {
+            return null;
+        }
+        Object value = vars.get(key);
+        if (value == null) {
+            return null;
+        }
+        String text = String.valueOf(value).trim();
+        return "null".equalsIgnoreCase(text) ? null : text;
+    }
+
+    private Map<String, Object> buildSmsSendRequest(SmsTaskData taskData) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("sms_task_id", firstNonBlank(taskData.smsTaskId, UUID.randomUUID().toString()));
+        body.put("request_id", firstNonBlank(taskData.requestId, UUID.randomUUID().toString()));
+        body.put("session_id", firstNonBlank(taskData.sessionId, currentSectionId, UUID.randomUUID().toString()));
+        if (!isBlank(taskData.medicineId)) {
+            body.put("medicine_id", taskData.medicineId);
+        }
+        body.put("recipient", taskData.recipient);
+        body.put("template_id", taskData.templateId);
+        body.put("template_vars", taskData.templateVars != null ? taskData.templateVars : new HashMap<>());
+        body.put("consent_version", firstNonBlank(taskData.consentVersion, "v1"));
+        return body;
+    }
+
+    private boolean isBackendCallSuccess(Response<ResponseBody> response) {
+        if (response == null || !response.isSuccessful()) {
+            return false;
+        }
+        okhttp3.Response rawResponse = response.raw();
+        if (rawResponse == null) {
+            return true;
+        }
+        try {
+            String text = rawResponse.peekBody(64 * 1024).string();
+            if (isBlank(text)) {
+                return true;
             }
-        }, accumulatedTime + 1400L);
+            org.json.JSONObject json = new org.json.JSONObject(text);
+            if (json.has("code")) {
+                return json.optInt("code", -1) == 0;
+            }
+            return true;
+        } catch (Exception e) {
+            return true;
+        }
+    }
+
+    private String readBackendMessage(Response<ResponseBody> response) {
+        if (response == null) {
+            return "未知错误";
+        }
+        if (response.errorBody() != null) {
+            try {
+                String errorText = response.errorBody().string();
+                if (!isBlank(errorText)) {
+                    return errorText;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        okhttp3.Response rawResponse = response.raw();
+        if (rawResponse != null) {
+            try {
+                String bodyText = rawResponse.peekBody(64 * 1024).string();
+                if (!isBlank(bodyText)) {
+                    org.json.JSONObject json = new org.json.JSONObject(bodyText);
+                    return firstNonBlank(json.optString("message", null), bodyText, "请求失败");
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return "请求失败";
     }
 
     private String buildConfirmCardContent(String primaryLine, String metaLine, String secondaryAction,
@@ -2126,29 +1791,6 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
         isAnalyzing = true;
         isModeLocked = true; // 锁定模式，禁止切换
         triggerVibration();
-
-        if (ENABLE_FAKE_BACKEND_DEMO && currentMode == Mode.PHOTO) {
-            Log.d(TAG, "[" + source + "] 拍照识药模拟：按真实链路展示等待与结果");
-            backendDemoHandler.removeCallbacksAndMessages(null);
-            playDemoPhotoRecognition();
-            return;
-        }
-
-        if (ENABLE_FAKE_BACKEND_DEMO && currentMode == Mode.MULTI) {
-            Log.d(TAG, "[" + source + "] 多模态模拟：按当前选择触发子功能=" + multiDemoSelection);
-            backendDemoHandler.removeCallbacksAndMessages(null);
-            closeCardImmediately();
-            isAnalyzing = false;
-            isModeLocked = false;
-            if (RenderProcessor.getInstance() != null) {
-                RenderProcessor.getInstance().setLocked(false);
-                RenderProcessor.getInstance().setCloseProgress(0f);
-            }
-            openPalmStartTime = 0;
-
-            startDemoMultiModalFlow(multiDemoSelection);
-            return;
-        }
 
         RecognizeTask.HighResYUVCache yuvCache = RecognizeTask.getLatestHighResYUV();
         Log.d(TAG, "📷 [" + source + "] YUV缓存: " + (yuvCache != null ? "有效" : "为null"));
@@ -2260,7 +1902,7 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
                             // 自动开启麦克风录音
                             new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
                                 Log.d(TAG, "🎤 多模态模式：自动触发录音");
-                                // 模拟麦克风点击，开启录音
+                                // 直接复用麦克风切换逻辑开启录音
                                 handleMicToggle(true);
                             }, 500); // 延迟500ms，确保卡片显示完成
                         }
@@ -3026,51 +2668,89 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
     }
 
     private void onReminderCreateDeferred() {
-        backendDemoHandler.removeCallbacksAndMessages(null);
+        uiHandler.removeCallbacksAndMessages(null);
         clearCardActions();
-        reminderDemoActive = false;
         isWaitingForQuestion = false;
         pendingReminderCardData = null;
+        pendingSmsTaskData = null;
         showArToast("取消创建成功");
         setStatusMotion(StatusMotion.IDLE);
         closeCardImmediately();
         updateStatus("已取消创建", R.drawable.ic_assistant);
         isVoiceCardShowing = false;
-        backendDemoHandler.postDelayed(this::finishCardFlowToIdle, 900L);
+        uiHandler.postDelayed(this::finishCardFlowToIdle, 900L);
     }
 
     private void onReminderCreateConfirmed() {
-        backendDemoHandler.removeCallbacksAndMessages(null);
+        uiHandler.removeCallbacksAndMessages(null);
         clearCardActions();
-        reminderDemoActive = false;
         isWaitingForQuestion = false;
         ReminderCardData reminderData = normalizeReminderCardData(pendingReminderCardData);
+        pendingReminderCardData = null;
+
+        if (reminderData == null) {
+            showArToast("提醒数据不完整，请重试");
+            updateStatus("提醒数据不完整", R.drawable.ic_assistant);
+            setStatusMotion(StatusMotion.IDLE);
+            closeCardImmediately();
+            uiHandler.postDelayed(this::finishCardFlowToIdle, 900L);
+            return;
+        }
+
+        // 先保证本地提醒可用，再尝试云端同步。
+        saveLocalReminderData(reminderData);
+        scheduleLocalReminderAtPlanTime(reminderData);
+
         showArToast("已确认：创建提醒");
-        updateStatus("提醒创建中", R.drawable.ic_processing);
+        updateStatus("提醒同步中", R.drawable.ic_processing);
         setStatusMotion(StatusMotion.PROCESSING);
-        setCardText("提醒创建中", "正在同步提醒策略...",
+        setCardText("提醒创建中", "本地提醒已创建，正在同步云端...",
                 getResources().getColor(R.color.primary_teal_light, null), false);
         positionCardTopCenter();
 
-        long waitMs = DEMO_PHOTO_RESULT_MIN_DELAY_MS
-                + (long) (Math.random()
-                        * (DEMO_PHOTO_RESULT_MAX_DELAY_MS - DEMO_PHOTO_RESULT_MIN_DELAY_MS + 1));
+        Map<String, Object> requestBody = buildReminderSyncRequest(reminderData);
+        RetrofitClient.getInstance().getApi().syncReminder(requestBody).enqueue(new Callback<ResponseBody>() {
+            @Override
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                runOnUiThread(() -> {
+                    setStatusMotion(StatusMotion.IDLE);
+                    if (isBackendCallSuccess(response)) {
+                        updateStatus("提醒创建完成", R.drawable.ic_assistant);
+                        setCardText("创建成功", "药品：" + reminderData.drugName + "\n提醒时间：每日 " + reminderData.reminderTime,
+                                getResources().getColor(R.color.status_success, null));
+                        showArToast("提醒创建成功");
+                    } else {
+                        String backendMessage = readBackendMessage(response);
+                        updateStatus("提醒已创建（云同步失败）", R.drawable.ic_assistant);
+                        setCardText("创建成功", "本地提醒已创建\n云同步失败：" + backendMessage,
+                                getResources().getColor(R.color.status_warning_warm, null));
+                        showArToast("本地提醒已创建，云同步失败");
+                    }
+                    positionCardTopCenter();
+                });
+            }
 
-        backendDemoHandler.postDelayed(() -> {
-            setStatusMotion(StatusMotion.IDLE);
-            updateStatus("提醒创建完成", R.drawable.ic_assistant);
-            setCardText("创建成功", "药品：" + reminderData.drugName + "\n提醒时间：每日 " + reminderData.reminderTime,
-                    getResources().getColor(R.color.status_success, null));
-            positionCardTopCenter();
-            showArToast("提醒创建成功");
-            saveLocalReminderData(reminderData);
-            scheduleLocalReminderAtPlanTime(reminderData);
-            pendingReminderCardData = null;
-        }, waitMs);
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                runOnUiThread(() -> {
+                    setStatusMotion(StatusMotion.IDLE);
+                    updateStatus("提醒已创建（云同步失败）", R.drawable.ic_assistant);
+                    setCardText("创建成功", "本地提醒已创建\n云同步失败：网络异常",
+                            getResources().getColor(R.color.status_warning_warm, null));
+                    positionCardTopCenter();
+                    showArToast("本地提醒已创建，云同步失败");
+                });
+            }
+        });
     }
 
     private void showReminderDoseCard(ReminderCardData rawData) {
         ReminderCardData data = normalizeReminderCardData(rawData);
+        if (data == null) {
+            updateStatus("提醒数据不完整", R.drawable.ic_assistant);
+            showArToast("提醒数据不完整，请重试");
+            return;
+        }
         pendingReminderCardData = data;
         isVoiceCardShowing = true;
 
@@ -3104,6 +2784,10 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
 
     private void saveLocalReminderData(ReminderCardData rawData) {
         ReminderCardData data = normalizeReminderCardData(rawData);
+        if (data == null) {
+            Log.w(TAG, "本地提醒保存跳过：数据不完整");
+            return;
+        }
         SharedPreferences preferences = getSharedPreferences(REMINDER_PREFS_NAME, MODE_PRIVATE);
         preferences.edit()
                 .putString(REMINDER_KEY_DRUG, data.drugName)
@@ -3115,27 +2799,34 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
 
     private ReminderCardData loadLocalReminderData() {
         SharedPreferences preferences = getSharedPreferences(REMINDER_PREFS_NAME, MODE_PRIVATE);
-        String reminderTime = preferences.getString(REMINDER_KEY_TIME, null);
-        if (isBlank(reminderTime)) {
-            return null;
-        }
-
         return normalizeReminderCardData(new ReminderCardData(
                 preferences.getString(REMINDER_KEY_DRUG, null),
                 preferences.getString(REMINDER_KEY_USAGE, null),
-                reminderTime,
+                preferences.getString(REMINDER_KEY_TIME, null),
                 preferences.getString(REMINDER_KEY_SOURCE, null)));
     }
 
     private void scheduleLocalReminderAtPlanTime(ReminderCardData rawData) {
         ReminderCardData data = normalizeReminderCardData(rawData);
+        if (data == null) {
+            Log.w(TAG, "本地提醒调度跳过：数据不完整");
+            return;
+        }
         saveLocalReminderData(data);
         long triggerAt = computeNextReminderTriggerAt(data.reminderTime);
+        if (triggerAt <= 0L) {
+            Log.w(TAG, "本地提醒调度跳过：提醒时间格式无效");
+            return;
+        }
         scheduleLocalReminder(data, triggerAt);
     }
 
     private void scheduleLocalReminderAfterDelay(ReminderCardData rawData, long delayMs) {
         ReminderCardData data = normalizeReminderCardData(rawData);
+        if (data == null) {
+            Log.w(TAG, "本地提醒顺延跳过：数据不完整");
+            return;
+        }
         saveLocalReminderData(data);
         long triggerAt = System.currentTimeMillis() + Math.max(0L, delayMs);
         scheduleLocalReminder(data, triggerAt);
@@ -3157,20 +2848,20 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
     }
 
     private long computeNextReminderTriggerAt(String reminderTime) {
-        String safeTime = firstNonBlank(reminderTime, "13:15");
-        int hour = 13;
-        int minute = 15;
-        if (!isBlank(safeTime) && safeTime.contains(":")) {
-            String[] parts = safeTime.split(":");
-            if (parts.length >= 2) {
-                try {
-                    hour = Integer.parseInt(parts[0].trim());
-                    minute = Integer.parseInt(parts[1].trim());
-                } catch (NumberFormatException ignored) {
-                    hour = 20;
-                    minute = 26;
-                }
-            }
+        if (isBlank(reminderTime) || !reminderTime.contains(":")) {
+            return -1L;
+        }
+        int hour;
+        int minute;
+        String[] parts = reminderTime.split(":");
+        if (parts.length < 2) {
+            return -1L;
+        }
+        try {
+            hour = Integer.parseInt(parts[0].trim());
+            minute = Integer.parseInt(parts[1].trim());
+        } catch (NumberFormatException ignored) {
+            return -1L;
         }
 
         Calendar now = Calendar.getInstance();
@@ -3187,10 +2878,17 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
     }
 
     private void onReminderDoseDeferred() {
-        backendDemoHandler.removeCallbacksAndMessages(null);
+        uiHandler.removeCallbacksAndMessages(null);
         clearCardActions();
         ReminderCardData reminderData = normalizeReminderCardData(
                 pendingReminderCardData != null ? pendingReminderCardData : loadLocalReminderData());
+        if (reminderData == null) {
+            pendingReminderCardData = null;
+            showArToast("提醒数据不完整，请重试");
+            updateStatus("提醒数据不完整", R.drawable.ic_assistant);
+            uiHandler.postDelayed(this::finishCardFlowToIdle, 1200L);
+            return;
+        }
         scheduleLocalReminderAfterDelay(reminderData, REMINDER_SNOOZE_DELAY_MS);
         pendingReminderCardData = null;
         showArToast("已选择：稍后提醒");
@@ -3198,14 +2896,21 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
         setCardText("提醒已顺延", "已延后10分钟再次提醒",
                 getResources().getColor(R.color.status_warning_warm, null));
         positionCardTopCenter();
-        backendDemoHandler.postDelayed(this::finishCardFlowToIdle, 1800L);
+        uiHandler.postDelayed(this::finishCardFlowToIdle, 1800L);
     }
 
     private void onReminderDoseTaken() {
-        backendDemoHandler.removeCallbacksAndMessages(null);
+        uiHandler.removeCallbacksAndMessages(null);
         clearCardActions();
         ReminderCardData reminderData = normalizeReminderCardData(
                 pendingReminderCardData != null ? pendingReminderCardData : loadLocalReminderData());
+        if (reminderData == null) {
+            pendingReminderCardData = null;
+            showArToast("提醒数据不完整，请重试");
+            updateStatus("提醒数据不完整", R.drawable.ic_assistant);
+            uiHandler.postDelayed(this::finishCardFlowToIdle, 1200L);
+            return;
+        }
         scheduleLocalReminderAtPlanTime(reminderData);
         pendingReminderCardData = null;
         showArToast("已确认：已服用");
@@ -3214,22 +2919,23 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
                 getResources().getColor(R.color.status_success, null));
         positionCardTopCenter();
         showArToast("服药记录已同步");
-        backendDemoHandler.postDelayed(this::finishCardFlowToIdle, 1800L);
+        uiHandler.postDelayed(this::finishCardFlowToIdle, 1800L);
     }
 
     private void onSmsSendCancelled() {
-        backendDemoHandler.removeCallbacksAndMessages(null);
+        uiHandler.removeCallbacksAndMessages(null);
         clearCardActions();
+        pendingSmsTaskData = null;
         showArToast("已取消发送");
         updateStatus("短信已取消", R.drawable.ic_assistant);
         setCardText("发送已取消", "本次未发送短信",
                 getResources().getColor(R.color.status_warning_warm, null));
         positionCardTopCenter();
-        backendDemoHandler.postDelayed(this::finishCardFlowToIdle, 1500L);
+        uiHandler.postDelayed(this::finishCardFlowToIdle, 1500L);
     }
 
     private void onSmsSendConfirmed() {
-        backendDemoHandler.removeCallbacksAndMessages(null);
+        uiHandler.removeCallbacksAndMessages(null);
         clearCardActions();
         showArToast("已确认：发送");
         updateStatus("短信发送中", R.drawable.ic_processing);
@@ -3238,26 +2944,57 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
                 getResources().getColor(R.color.primary_teal_light, null), false);
         positionCardTopCenter();
 
-        long waitMs = DEMO_PHOTO_RESULT_MIN_DELAY_MS
-                + (long) (Math.random()
-                        * (DEMO_PHOTO_RESULT_MAX_DELAY_MS - DEMO_PHOTO_RESULT_MIN_DELAY_MS + 1));
+        SmsTaskData taskData = pendingSmsTaskData;
+        pendingSmsTaskData = null;
 
-        backendDemoHandler.postDelayed(() -> {
+        if (taskData == null || isBlank(taskData.recipient)
+                || isBlank(firstNonBlank(getTemplateVarAsString(taskData.templateVars, "message")))
+                || isBlank(taskData.templateId)) {
             setStatusMotion(StatusMotion.IDLE);
-            if (backendSmsSuccessNext) {
-                updateStatus("短信发送完成", R.drawable.ic_assistant);
-                setCardText("发送结果", "已发送给儿子（18983810096）\n内容：999感冒灵颗粒快吃完了，帮我买一点回来",
-                        getResources().getColor(R.color.status_success, null));
-                showArToast("短信发送成功");
-            } else {
-                updateStatus("短信发送异常", R.drawable.ic_assistant);
-                setCardText("发送结果", "短信发送失败，已切换电话通知",
-                        getResources().getColor(R.color.status_warning_warm, null));
-                showArToast("短信发送失败，已降级处理");
-            }
+            updateStatus("短信数据不完整", R.drawable.ic_assistant);
+            setCardText("发送结果", "短信数据不完整，请重新发起",
+                    getResources().getColor(R.color.status_warning_warm, null));
             positionCardTopCenter();
-            backendSmsSuccessNext = !backendSmsSuccessNext;
-        }, waitMs);
+            showArToast("短信数据不完整，请重试");
+            return;
+        }
+
+        Map<String, Object> requestBody = buildSmsSendRequest(taskData);
+        RetrofitClient.getInstance().getApi().sendSms(requestBody).enqueue(new Callback<ResponseBody>() {
+            @Override
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                runOnUiThread(() -> {
+                    setStatusMotion(StatusMotion.IDLE);
+                    if (isBackendCallSuccess(response)) {
+                        updateStatus("短信发送完成", R.drawable.ic_assistant);
+                        setCardText("发送结果",
+                                "已发送给" + firstNonBlank(taskData.recipient, "目标联系人") + "\n任务ID："
+                                        + firstNonBlank(taskData.smsTaskId, "-"),
+                                getResources().getColor(R.color.status_success, null));
+                        showArToast("短信发送成功");
+                    } else {
+                        String backendMessage = readBackendMessage(response);
+                        updateStatus("短信发送失败", R.drawable.ic_assistant);
+                        setCardText("发送结果", "短信发送失败：" + backendMessage,
+                                getResources().getColor(R.color.status_warning_warm, null));
+                        showArToast("短信发送失败");
+                    }
+                    positionCardTopCenter();
+                });
+            }
+
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                runOnUiThread(() -> {
+                    setStatusMotion(StatusMotion.IDLE);
+                    updateStatus("短信发送失败", R.drawable.ic_assistant);
+                    setCardText("发送结果", "短信发送失败：网络异常",
+                            getResources().getColor(R.color.status_warning_warm, null));
+                    positionCardTopCenter();
+                    showArToast("短信发送失败");
+                });
+            }
+        });
     }
 
     private void finishCardFlowToIdle() {
