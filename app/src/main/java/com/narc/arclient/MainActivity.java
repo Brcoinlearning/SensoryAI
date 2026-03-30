@@ -153,7 +153,6 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
 
     private static final long REMINDER_POPUP_DELAY_AFTER_CREATE_MS = 10000L;
     private static final long REMINDER_SNOOZE_DELAY_MS = 10 * 60 * 1000L;
-    private static final long MULTI_QA_SUBTITLE_START_DELAY_MS = 3500L;
     private static final String REMINDER_PREFS_NAME = "local_reminder";
     private static final String REMINDER_KEY_DRUG = "drug";
     private static final String REMINDER_KEY_USAGE = "usage";
@@ -766,25 +765,6 @@ public class MainActivity extends BaseMirrorActivity<ActivityMainBinding> {
                 isModeLocked = true;
             }
         }
-    }
-
-    private void playMultiQaQuestionSubtitleWithPauses() {
-        // 与功能二保持一致：开麦后先等待2秒，再以不规则节奏逐步出字。
-        long baseDelay = MULTI_QA_SUBTITLE_START_DELAY_MS;
-
-        postMultiQaSubtitleAt(baseDelay + 0L, "请", false);
-        postMultiQaSubtitleAt(baseDelay + 260L, "请问", false);
-        postMultiQaSubtitleAt(baseDelay + 620L, "请问这", false);
-        postMultiQaSubtitleAt(baseDelay + 860L, "请问这个", false);
-        postMultiQaSubtitleAt(baseDelay + 1260L, "请问这个药", false);
-        postMultiQaSubtitleAt(baseDelay + 1660L, "请问这个药过期", false);
-        postMultiQaSubtitleAt(baseDelay + 2060L, "请问这个药过期了", false);
-        postMultiQaSubtitleAt(baseDelay + 2460L, "请问这个药过期了吗", false);
-        postMultiQaSubtitleAt(baseDelay + 2860L, "请问这个药过期了吗？", true);
-    }
-
-    private void postMultiQaSubtitleAt(long delayMs, String text, boolean isFinal) {
-        uiHandler.postDelayed(() -> updateSubtitle(text, isFinal), delayMs);
     }
 
     /**
