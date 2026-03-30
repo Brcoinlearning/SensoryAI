@@ -247,6 +247,8 @@ public class ICameraManager {
             recorderSurface = null;
             isVideoRecording = false;
             videoFilePath = null;
+            // 立即重新初始化，允许下一次录制使用
+            prepareVideoRecorder();
         }
     }
 

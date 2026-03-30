@@ -1,0 +1,36 @@
+# Gradle files
+.gradle
+.gradle/
+build/
+*.apk
+*.aar
+*.jar
+*.so
+
+# Android Studio
+.idea/
+.DS_Store
+*.iml
+*.iws
+*.ipr
+local.properties
+captures/
+
+# IDE
+.vscode/
+
+# Compiled files
+*.class
+*.o
+*.so
+
+# Logs
+*.log
+
+# Environment
+.env
+.env.local
+
+# Build artifacts
+app/build/
+gradle/wrapper/gradle-wrapper.jar
