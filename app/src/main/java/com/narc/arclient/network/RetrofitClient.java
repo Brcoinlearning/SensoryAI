@@ -1,5 +1,6 @@
 package com.narc.arclient.network;
 
+import com.narc.arclient.BuildConfig;
 import java.util.concurrent.TimeUnit;
 import okhttp3.OkHttpClient;
 import okhttp3.logging.HttpLoggingInterceptor;
@@ -18,16 +19,13 @@ public class RetrofitClient {
     // 方案 B: 如果你有域名 (推荐，更稳定，且支持 HTTPS)
     // private static final String BASE_URL = "https://api.silversight.com/";
 
-    // 方案 C: ngrok 内网穿透 (开发阶段)
-    // 使用 HTTPS 安全连接，与后端 ngrok 地址一致
-    private static final String BASE_URL = "https://emotionless-kneadingly-tora.ngrok-free.dev/";
+    private static final String BASE_URL = BuildConfig.API_BASE_URL;
 
     private static RetrofitClient instance;
     private ApiService apiService;
 
     private RetrofitClient() {
-        // 增加超时时间，互联网传输可能比局域网慢
-        OkHttpClient client = new OkHttpClient.Builder()
+        OkHttpClient.Builder clientBuilder = new OkHttpClient.Builder()
                 .addInterceptor(chain -> {
                     // 添加 ngrok 跳过浏览器警告的 header
                     okhttp3.Request request = chain.request().newBuilder()
@@ -35,11 +33,15 @@ public class RetrofitClient {
                             .build();
                     return chain.proceed(request);
                 })
-                .addInterceptor(new HttpLoggingInterceptor().setLevel(HttpLoggingInterceptor.Level.HEADERS))
-                .connectTimeout(30, TimeUnit.SECONDS) // 连接超时 30s（增加至30秒）
-                .readTimeout(120, TimeUnit.SECONDS) // 读取超时 120s（增加至2分钟，适应后端处理时间）
-                .writeTimeout(30, TimeUnit.SECONDS) // 写入超时 30s（增加至30秒）
-                .build();
+                .connectTimeout(25, TimeUnit.SECONDS)
+                .readTimeout(25, TimeUnit.SECONDS)
+                .writeTimeout(25, TimeUnit.SECONDS);
+
+        if (BuildConfig.ENABLE_HTTP_LOGGING) {
+            clientBuilder.addInterceptor(new HttpLoggingInterceptor().setLevel(HttpLoggingInterceptor.Level.HEADERS));
+        }
+
+        OkHttpClient client = clientBuilder.build();
 
         Retrofit retrofit = new Retrofit.Builder()
                 .baseUrl(BASE_URL)
